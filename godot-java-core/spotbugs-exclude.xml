@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FindBugsFilter>
+    <!-- SpotBugs false positives for Java Records with List fields -->
+    <Match>
+        <Package name="com.godot.codegen"/>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!-- Panama FFI interop: MemorySegment and Godot objects are passed by
+         reference by design — the wrapper IS the native object reference.
+         SpotBugs does not understand this pattern. -->
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2,MS_EXPOSE_REP"/>
+    </Match>
+
+    <!-- Generated math types: public fields and dead stores are by design -->
+    <Match>
+        <Package name="org.godot.math"/>
+    </Match>
+
+    <!-- Generated node types: package-private constructors used by native code -->
+    <Match>
+        <Bug pattern="SING_SINGLETON_HAS_NONPRIVATE_CONSTRUCTOR"/>
+    </Match>
+
+    <!-- Scanner.scanPackage is a stub for future classpath scanning -->
+    <Match>
+        <Class name="org.godot.registration.Scanner"/>
+        <Bug pattern="UC_USELESS_VOID_METHOD"/>
+    </Match>
+
+    <!-- Auto-generated: VirtualMethods.NODE_VIRTUALS is a static lookup table -->
+    <Match>
+        <Class name="org.godot.internal.api.VirtualMethods"/>
+        <Bug pattern="MS_MUTABLE_ARRAY"/>
+    </Match>
+</FindBugsFilter>

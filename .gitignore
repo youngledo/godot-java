@@ -1,0 +1,23 @@
+### Maven template
+target/
+
+### IDE
+.idea/
+.vscode/
+.project
+.classpath
+.settings/
+bin/
+
+### AI
+.claude/
+
+### Godot
+.godot/
+*.uid
+
+### Native build output
+godot-java-core/native/build/
+
+### Log
+*.log
