@@ -43,4 +43,8 @@ public final class NativeMemoryTracker {
 	public static long getLiveBytes() {
 		return liveBytes.get();
 	}
+
+	public static String dump() {
+		return "NativeMemoryTracker{liveAllocations=" + liveAllocations.get() + ", liveBytes=" + liveBytes.get() + "}";
+	}
 }

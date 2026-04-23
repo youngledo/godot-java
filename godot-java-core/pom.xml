@@ -70,10 +70,30 @@
                             <arguments>
                                 <argument>${godot.api.json}</argument>
                                 <argument>${godot.interface.json}</argument>
-                                <argument>${project.basedir}/src/main/java</argument>
-                                <argument>--all</argument>
+                                <argument>${project.build.directory}/generated-sources/codegen</argument>
                             </arguments>
                             <skip>false</skip>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Add generated sources to compile classpath -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <version>3.6.0</version>
+                <executions>
+                    <execution>
+                        <id>add-generated-sources</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>add-source</goal>
+                        </goals>
+                        <configuration>
+                            <sources>
+                                <source>${project.build.directory}/generated-sources/codegen</source>
+                            </sources>
                         </configuration>
                     </execution>
                 </executions>

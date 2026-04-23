@@ -4,6 +4,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.godot.annotation.Export;
 import org.godot.annotation.GodotClass;
+import org.godot.math.Vector2;
 import org.godot.node.Node2D;
 
 /**
@@ -34,6 +35,6 @@ public class RotatingSprite extends Node2D {
 		double radius = 100;
 		double x = Math.cos(time * rotationSpeed) * radius;
 		double y = Math.sin(time * rotationSpeed) * radius;
-		setPosition(x, y);
+		setPosition(new Vector2(x, y));
 	}
 }

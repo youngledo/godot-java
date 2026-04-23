@@ -141,11 +141,19 @@ jobs:
           echo === shared-native contents ===
           dir godot-java-examples\examples\shared-native\
 
-      - name: Fix symlinks for Windows
+      - name: Deploy native library and JAR to it-test (macOS/Linux)
+        if: runner.os != 'Windows'
+        run: |
+          echo "=== Copying shared-native to it-test/native (symlinks not in git) ==="
+          cp godot-java-examples/examples/shared-native/godot-java-examples.jar godot-java-examples/examples/it-test/native/
+          cp godot-java-examples/examples/shared-native/libgodot-java.* godot-java-examples/examples/it-test/native/ 2>/dev/null || true
+          ls -la godot-java-examples/examples/it-test/native/
+
+      - name: Deploy native library and JAR to it-test (Windows)
         if: runner.os == 'Windows'
         shell: cmd
         run: |
-          echo === Copying shared-native to it-test/native (Windows has no symlinks) ===
+          echo === Copying shared-native to it-test/native ===
           copy /Y godot-java-examples\examples\shared-native\godot-java-examples.jar godot-java-examples\examples\it-test\native\
           copy /Y godot-java-examples\examples\shared-native\libgodot-java.dll godot-java-examples\examples\it-test\native\
           dir godot-java-examples\examples\it-test\native\

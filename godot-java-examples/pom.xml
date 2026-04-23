@@ -16,13 +16,6 @@
             <groupId>org.godot</groupId>
             <artifactId>godot-java-core</artifactId>
         </dependency>
-        <!-- Annotation processor: discovered via META-INF/services -->
-        <dependency>
-            <groupId>org.godot</groupId>
-            <artifactId>godot-java-processor</artifactId>
-            <version>${project.version}</version>
-            <scope>compile</scope>
-        </dependency>
     </dependencies>
 
     <build>
@@ -94,6 +87,13 @@
                         </configuration>
                     </execution>
                 </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-deploy-plugin</artifactId>
+                <configuration>
+                    <skip>true</skip>
+                </configuration>
             </plugin>
         </plugins>
     </build>

@@ -155,6 +155,13 @@ public final class CallableDispatch {
 	 */
 	static void callAdapter(MemorySegment userdataSeg, MemorySegment argsSeg, long argCount, MemorySegment retSeg,
 			MemorySegment errorSeg) {
+		// Discard re-entrant upcall during downcall — native pointers are ephemeral
+		if (Bridge.isInDowncall()) {
+			Bridge.callVoid(org.godot.internal.api.ApiIndex.VARIANT_NEW_NIL, retSeg);
+			setError(errorSeg, ERROR_OK);
+			return;
+		}
+
 		try {
 			// Get key from userdata
 			long key = userdataSeg.address();

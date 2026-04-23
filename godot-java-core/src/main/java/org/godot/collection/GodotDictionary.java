@@ -47,12 +47,17 @@ public class GodotDictionary extends RefCounted {
 			MemorySegment dictPtrBuf = Bridge.allocate(ADDRESS.byteSize());
 			dictPtrBuf.set(ADDRESS, 0, MemorySegment.ofAddress(nativeObject));
 			Variant keyVar = VariantUtils.fromObject(key);
-			MemorySegment retVar = Bridge.allocVariant();
+			MemorySegment keyVarSegment = keyVar.getSegment();
+			try {
+				MemorySegment retVar = Bridge.allocVariant();
 
-			Bridge.callVoid(ApiIndex.DICTIONARY_OPERATOR_INDEX_CONST, dictPtrBuf, keyVar.getSegment(), retVar);
-			Object result = VariantUtils.toObject(new Variant(retVar));
-			Bridge.destroyVariant(retVar);
-			return result;
+				Bridge.callVoid(ApiIndex.DICTIONARY_OPERATOR_INDEX_CONST, dictPtrBuf, keyVarSegment, retVar);
+				Object result = VariantUtils.toObject(new Variant(retVar));
+				Bridge.destroyVariant(retVar);
+				return result;
+			} finally {
+				Bridge.destroyVariant(keyVarSegment);
+			}
 		});
 	}
 
@@ -68,8 +73,14 @@ public class GodotDictionary extends RefCounted {
 			dictPtrBuf.set(ADDRESS, 0, MemorySegment.ofAddress(nativeObject));
 			Variant keyVar = VariantUtils.fromObject(key);
 			Variant valueVar = VariantUtils.fromObject(value);
-
-			Bridge.callVoid(ApiIndex.DICTIONARY_OPERATOR_INDEX, dictPtrBuf, keyVar.getSegment(), valueVar.getSegment());
+			MemorySegment keyVarSegment = keyVar.getSegment();
+			MemorySegment valueVarSegment = valueVar.getSegment();
+			try {
+				Bridge.callVoid(ApiIndex.DICTIONARY_OPERATOR_INDEX, dictPtrBuf, keyVarSegment, valueVarSegment);
+			} finally {
+				Bridge.destroyVariant(keyVarSegment);
+				Bridge.destroyVariant(valueVarSegment);
+			}
 		});
 	}
 

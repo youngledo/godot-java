@@ -163,7 +163,7 @@ public final class InstanceCallbacks {
 	 *            GDExtensionBool — if true, call postinitialize()
 	 * @return GDExtensionObjectPtr
 	 */
-	static long createInstanceFunc(long classUserdataPtr, int notifyPostinit) {
+	static long createInstanceFunc(long classUserdataPtr, byte notifyPostinit) {
 		if (classUserdataPtr == 0) {
 			logger.error("createInstanceFunc: classUserdata is NULL");
 			return 0;
@@ -230,7 +230,7 @@ public final class InstanceCallbacks {
 	 * create_instance_adapter(ADDRESS classUserdataPtr, JAVA_INT notifyPostinit)
 	 * Unpacks MemorySegments → calls createInstanceFunc → returns MemorySegment.
 	 */
-	private static MemorySegment createInstanceAdapter(MemorySegment classUserdataPtrSeg, int notifyPostinit) {
+	private static MemorySegment createInstanceAdapter(MemorySegment classUserdataPtrSeg, byte notifyPostinit) {
 		long result = createInstanceFunc(classUserdataPtrSeg.address(), notifyPostinit);
 		return MemorySegment.ofAddress(result);
 	}
@@ -250,7 +250,6 @@ public final class InstanceCallbacks {
 				obj.invalidate();
 			}
 			JavaObjectMap.remove(instancePtr);
-			org.godot.internal.NativeMemoryTracker.onFree(instancePtr);
 		}
 	}
 
@@ -476,8 +475,8 @@ public final class InstanceCallbacks {
 		}
 	}
 
-	/** Panama adapter for notification_func: void(ADDRESS, JAVA_INT, JAVA_INT) */
-	private static void notificationAdapter(MemorySegment instanceSeg, int what, int reversed) {
+	/** Panama adapter for notification_func: void(ADDRESS, JAVA_INT, JAVA_BYTE) */
+	private static void notificationAdapter(MemorySegment instanceSeg, int what, byte reversed) {
 		notificationFunc(instanceSeg.address(), what, reversed);
 	}
 
@@ -496,7 +495,7 @@ public final class InstanceCallbacks {
 	 * @param classUserdataPtr
 	 *            class_userdata pointer (unused)
 	 */
-	static void toStringFunc(long instancePtr, long retPtr, long classUserdataPtr) {
+	static void toStringFunc(long instancePtr, long isValidPtr, long outPtr) {
 		Object obj = JavaObjectMap.get(instancePtr);
 		String result;
 		if (obj != null) {
@@ -505,10 +504,16 @@ public final class InstanceCallbacks {
 			result = "<freed object>";
 		}
 
-		if (retPtr != 0) {
+		// Set r_is_valid = true (GDExtensionBool = uint8_t)
+		if (isValidPtr != 0) {
+			MemorySegment.ofAddress(isValidPtr).reinterpret(1).set(ValueLayout.JAVA_BYTE, 0, (byte) 1);
+		}
+
+		// Write GodotString pointer to *r_out (GDExtensionConstStringPtr*)
+		if (outPtr != 0) {
 			GodotString gs = GodotString.fromJavaString(result);
-			MemorySegment retSeg = MemorySegment.ofAddress(retPtr).reinterpret(8);
-			MemorySegment.copy(gs.segment(), 0, retSeg, 0, 8);
+			MemorySegment outSeg = MemorySegment.ofAddress(outPtr).reinterpret(ADDRESS.byteSize());
+			outSeg.set(ADDRESS, 0, gs.segment());
 		}
 	}
 
@@ -824,13 +829,14 @@ public final class InstanceCallbacks {
 		long classNamePtr = classNameSn.segment().address();
 
 		// Build create_instance_func upcall stub
-		// FD: ADDRESS createInstanceAdapter(ADDRESS classUserdataPtr, JAVA_INT
-		// notifyPostinit)
-		FunctionDescriptor createFd = FunctionDescriptor.of(ADDRESS, ADDRESS, JAVA_INT);
+		// GDExtensionClassCreateInstance2: GDExtensionObjectPtr(void* userdata,
+		// GDExtensionBool notify_postinitialize)
+		// GDExtensionBool is uint8_t, use JAVA_BYTE
+		FunctionDescriptor createFd = FunctionDescriptor.of(ADDRESS, ADDRESS, JAVA_BYTE);
 		MethodHandle createHandle;
 		try {
-			createHandle = MethodHandles.lookup().unreflect(
-					InstanceCallbacks.class.getDeclaredMethod("createInstanceAdapter", MemorySegment.class, int.class));
+			createHandle = MethodHandles.lookup().unreflect(InstanceCallbacks.class
+					.getDeclaredMethod("createInstanceAdapter", MemorySegment.class, byte.class));
 		} catch (ReflectiveOperationException e) {
 			throw new RuntimeException("Failed to create createInstance upcall handle", e);
 		}
@@ -861,6 +867,8 @@ public final class InstanceCallbacks {
 		// Set mandatory fields
 		// is_exposed = true (byte offset 2, GDExtensionBool = uint8_t)
 		info.set(ValueLayout.JAVA_BYTE, StructOffsets.CREATION_INFO4_OFF_IS_EXPOSED, (byte) 1);
+		// is_runtime = true (byte offset 3) — required by Godot 4.5+
+		info.set(ValueLayout.JAVA_BYTE, StructOffsets.CREATION_INFO4_OFF_IS_RUNTIME, (byte) 1);
 		// create_instance_func
 		info.set(ADDRESS, StructOffsets.CREATION_INFO4_OFF_CREATE_INSTANCE_FUNC,
 				MemorySegment.ofAddress(createStub.address()));
@@ -913,10 +921,11 @@ public final class InstanceCallbacks {
 		}
 
 		// notification_func — forward Godot notifications to Java
-		FunctionDescriptor notifyFd = FunctionDescriptor.ofVoid(ADDRESS, JAVA_INT, JAVA_INT);
+		// GDExtensionBool is uint8_t, use JAVA_BYTE for reversed param
+		FunctionDescriptor notifyFd = FunctionDescriptor.ofVoid(ADDRESS, JAVA_INT, JAVA_BYTE);
 		try {
 			MethodHandle notifyHandle = MethodHandles.lookup().unreflect(InstanceCallbacks.class
-					.getDeclaredMethod("notificationAdapter", MemorySegment.class, int.class, int.class));
+					.getDeclaredMethod("notificationAdapter", MemorySegment.class, int.class, byte.class));
 			MemorySegment notifyStub = Bridge.linker().upcallStub(notifyHandle, notifyFd, Bridge.ARENA);
 			info.set(ADDRESS, StructOffsets.CREATION_INFO4_OFF_NOTIFICATION_FUNC,
 					MemorySegment.ofAddress(notifyStub.address()));

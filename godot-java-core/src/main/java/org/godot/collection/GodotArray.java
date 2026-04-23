@@ -1,6 +1,6 @@
 package org.godot.collection;
 
-import org.godot.core.RefCounted;
+import org.godot.node.RefCounted;
 import org.godot.core.Variant;
 import org.godot.core.VariantUtils;
 import org.godot.bridge.Bridge;
@@ -195,26 +195,39 @@ public class GodotArray extends RefCounted {
 
 			int argc = args.length;
 			MemorySegment argPtrs;
-			if (argc > 0) {
-				argPtrs = Bridge.allocate(ADDRESS.byteSize() * argc);
-				for (int i = 0; i < argc; i++) {
-					Variant argVar = VariantUtils.fromObject(args[i]);
-					argPtrs.set(ADDRESS, (long) i * ADDRESS.byteSize(), argVar.getSegment());
+			MemorySegment[] argVarSegments = new MemorySegment[argc];
+			try {
+				if (argc > 0) {
+					argPtrs = Bridge.allocate(ADDRESS.byteSize() * argc);
+					for (int i = 0; i < argc; i++) {
+						Variant argVar = VariantUtils.fromObject(args[i]);
+						argVarSegments[i] = argVar.getSegment();
+						argPtrs.set(ADDRESS, (long) i * ADDRESS.byteSize(), argVarSegments[i]);
+					}
+				} else {
+					argPtrs = MemorySegment.NULL;
 				}
-			} else {
-				argPtrs = MemorySegment.NULL;
-			}
 
-			MemorySegment retVar = Bridge.allocVariant();
-			MemorySegment errorVar = Bridge.allocate(4 * 4);
+				MemorySegment retVar = Bridge.allocVariant();
+				MemorySegment errorVar = Bridge.allocate(4 * 4);
 
-			Bridge.callVoid(ApiIndex.VARIANT_CALL, selfVar, methodSn.segment(), argPtrs, (long) argc, retVar, errorVar);
+				Bridge.callVoid(ApiIndex.VARIANT_CALL, selfVar, methodSn.segment(), argPtrs, (long) argc, retVar,
+						errorVar);
 
-			Bridge.destroyVariant(retVar);
+				Bridge.destroyVariant(retVar);
 
-			int errorCode = errorVar.get(JAVA_INT, 0);
-			if (errorCode != 0) {
-				throw new RuntimeException("VARIANT_CALL error " + errorCode + " calling " + methodName + " on Array");
+				int errorCode = errorVar.get(JAVA_INT, 0);
+				if (errorCode != 0) {
+					throw new RuntimeException(
+							"VARIANT_CALL error " + errorCode + " calling " + methodName + " on Array");
+				}
+			} finally {
+				Bridge.destroyVariant(selfVar);
+				for (MemorySegment seg : argVarSegments) {
+					if (seg != null) {
+						Bridge.destroyVariant(seg);
+					}
+				}
 			}
 		});
 	}
@@ -230,30 +243,42 @@ public class GodotArray extends RefCounted {
 
 			int argc = args.length;
 			MemorySegment argPtrs;
-			if (argc > 0) {
-				argPtrs = Bridge.allocate(ADDRESS.byteSize() * argc);
-				for (int i = 0; i < argc; i++) {
-					Variant argVar = VariantUtils.fromObject(args[i]);
-					argPtrs.set(ADDRESS, (long) i * ADDRESS.byteSize(), argVar.getSegment());
+			MemorySegment[] argVarSegments = new MemorySegment[argc];
+			try {
+				if (argc > 0) {
+					argPtrs = Bridge.allocate(ADDRESS.byteSize() * argc);
+					for (int i = 0; i < argc; i++) {
+						Variant argVar = VariantUtils.fromObject(args[i]);
+						argVarSegments[i] = argVar.getSegment();
+						argPtrs.set(ADDRESS, (long) i * ADDRESS.byteSize(), argVarSegments[i]);
+					}
+				} else {
+					argPtrs = MemorySegment.NULL;
 				}
-			} else {
-				argPtrs = MemorySegment.NULL;
+
+				MemorySegment retVar = Bridge.allocVariant();
+				MemorySegment errorVar = Bridge.allocate(4 * 4);
+
+				Bridge.callVoid(ApiIndex.VARIANT_CALL, selfVar, methodSn.segment(), argPtrs, (long) argc, retVar,
+						errorVar);
+
+				int errorCode = errorVar.get(JAVA_INT, 0);
+				if (errorCode != 0) {
+					return null;
+				}
+
+				Variant result = new Variant(retVar);
+				Object javaResult = VariantUtils.toObject(result);
+				Bridge.destroyVariant(retVar);
+				return javaResult;
+			} finally {
+				Bridge.destroyVariant(selfVar);
+				for (MemorySegment seg : argVarSegments) {
+					if (seg != null) {
+						Bridge.destroyVariant(seg);
+					}
+				}
 			}
-
-			MemorySegment retVar = Bridge.allocVariant();
-			MemorySegment errorVar = Bridge.allocate(4 * 4);
-
-			Bridge.callVoid(ApiIndex.VARIANT_CALL, selfVar, methodSn.segment(), argPtrs, (long) argc, retVar, errorVar);
-
-			int errorCode = errorVar.get(JAVA_INT, 0);
-			if (errorCode != 0) {
-				return null;
-			}
-
-			Variant result = new Variant(retVar);
-			Object javaResult = VariantUtils.toObject(result);
-			Bridge.destroyVariant(retVar);
-			return javaResult;
 		});
 	}
 }

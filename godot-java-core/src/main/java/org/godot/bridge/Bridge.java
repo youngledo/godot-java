@@ -49,6 +49,12 @@ public final class Bridge {
 	private static long LIBRARY_PTR;
 
 	/**
+	 * Tracks whether the current thread is inside a Java→Godot downcall. Used to
+	 * detect re-entrant upcalls that would crash Panama FFI.
+	 */
+	private static final ScopedValue<Boolean> IN_DOWNCALL = ScopedValue.newInstance();
+
+	/**
 	 * Scoped value for call-path temporary arenas. When bound (via
 	 * {@link #runScoped}), allocations go to the scoped arena which is freed on
 	 * scope exit. When unbound (registration phase), allocations fall back to the
@@ -167,19 +173,22 @@ public final class Bridge {
 		return CALL_ARENA.orElse(ARENA);
 	}
 
-	/** Allocate a Godot Variant (24 bytes) from the active arena. */
+	/**
+	 * Allocate a Godot Variant (24 bytes, 8-byte aligned) from the active arena.
+	 */
 	public static MemorySegment allocVariant() {
-		return arena().allocate(24);
+		org.godot.internal.NativeMemoryTracker.onAllocate(24);
+		return arena().allocate(24, 8);
 	}
 
 	/**
-	 * Allocate n bytes from the active arena. During registration (no call scope),
-	 * allocations live for JVM lifetime. During call path (call scope active),
-	 * allocations are freed when the scope closes.
+	 * Allocate n bytes (8-byte aligned) from the active arena. During registration
+	 * (no call scope), allocations live for JVM lifetime. During call path (call
+	 * scope active), allocations are freed when the scope closes.
 	 */
 	public static MemorySegment allocate(long bytes) {
 		org.godot.internal.NativeMemoryTracker.onAllocate(bytes);
-		return arena().allocate(bytes);
+		return arena().allocate(bytes, 8);
 	}
 
 	/**
@@ -239,6 +248,42 @@ public final class Bridge {
 	/** Get native memory allocation statistics. */
 	public static String getMemoryStats() {
 		return org.godot.internal.NativeMemoryTracker.getStats();
+	}
+
+	// ------------------------------------------------------------------------
+	// Re-entrant upcall protection
+	// ------------------------------------------------------------------------
+
+	/**
+	 * Whether the current thread is inside a Java→Godot downcall. When true,
+	 * upcalls from Godot are discarded to avoid Panama FFI crash.
+	 */
+	public static boolean isInDowncall() {
+		return IN_DOWNCALL.orElse(false);
+	}
+
+	/**
+	 * Execute a native downcall with re-entrant upcall protection. Binds
+	 * IN_DOWNCALL to true for the duration, so upcall entry points can detect and
+	 * discard re-entrant calls.
+	 */
+	public static <T> T runDowncall(java.util.concurrent.Callable<T> downcall) {
+		return ScopedValue.where(IN_DOWNCALL, true).call(() -> {
+			try {
+				return downcall.call();
+			} catch (RuntimeException e) {
+				throw e;
+			} catch (Exception e) {
+				throw new RuntimeException(e);
+			}
+		});
+	}
+
+	/**
+	 * Execute a void native downcall with re-entrant upcall protection.
+	 */
+	public static void runDowncall(Runnable downcall) {
+		ScopedValue.where(IN_DOWNCALL, true).run(downcall);
 	}
 
 	// ------------------------------------------------------------------------
@@ -487,6 +532,18 @@ public final class Bridge {
 			return (MemorySegment) requireApi(api).invoke(arg1, arg2);
 		} catch (Throwable t) {
 			throw new org.godot.exception.GodotApiException(api.name(), "callPtrInt", t);
+		}
+	}
+	/**
+	 * Call an API function that returns a pointer, with a single long argument.
+	 * Used for object_get_instance_from_id(ObjectID).
+	 */
+	public static MemorySegment callPtr(ApiIndex api, long arg1) {
+		ThreadChecker.ensureMainThread();
+		try {
+			return (MemorySegment) requireApi(api).invoke(arg1);
+		} catch (Throwable t) {
+			throw new org.godot.exception.GodotApiException(api.name(), "callPtr(long)", t);
 		}
 	}
 

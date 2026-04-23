@@ -95,6 +95,18 @@ public class ExtensionApiParser {
 		return result;
 	}
 
+	public List<String> getSingletons() {
+		if (api.singletons() == null)
+			return List.of();
+		return api.singletons().stream().map(SingletonEntry::name).toList();
+	}
+
+	public List<SingletonEntry> getSingletonEntries() {
+		if (api.singletons() == null)
+			return List.of();
+		return api.singletons();
+	}
+
 	public Map<String, BuiltinClassInfo> getBuiltinClasses() {
 		Map<String, BuiltinClassInfo> result = new HashMap<>();
 		if (api.builtin_classes() != null) {
@@ -111,11 +123,15 @@ public class ExtensionApiParser {
 	public record ExtensionApi(Header header,
 			@SerializedName("builtin_class_sizes") List<BuiltinClassSize> builtin_class_sizes,
 			@SerializedName("builtin_classes") List<BuiltinClass> builtin_classes, List<ClassExtensionInfo> classes,
-			@SerializedName("utility_functions") List<UtilityFunction> utility_functions) {
+			@SerializedName("utility_functions") List<UtilityFunction> utility_functions,
+			List<SingletonEntry> singletons) {
 	}
 
 	public record Header(int version_major, int version_minor, int version_patch, String version_status,
 			String version_build, String version_full_name) {
+	}
+
+	public record SingletonEntry(String name, String type) {
 	}
 
 	public record BuiltinClassSize(@SerializedName("build_configuration") String build_configuration,

@@ -12,6 +12,7 @@
 #include <vector>
 #include <string>
 #include <sstream>
+#include <algorithm>
 
 // Platform-specific dynamic library loading
 #if defined(_WIN32)
@@ -19,6 +20,7 @@
     #include <cstdlib>
 #else
     #include <dlfcn.h>
+    #include <dirent.h>
     #include <cstdlib>
 #endif
 
@@ -314,9 +316,45 @@ static std::string platform_dlerror() {
 
 #endif
 
+// Forward declaration (needed by get_native_library_dir)
+extern "C" GDExtensionBool GDE_EXPORT godot_java_init(
+    GDExtensionInterfaceGetProcAddress p_get_proc_address,
+    GDExtensionClassLibraryPtr p_library,
+    GDExtensionInitialization *r_initialization);
+
 // ---------------------------------------------------------------------------
-// Path join helper
+// Path helpers
 // ---------------------------------------------------------------------------
+
+static std::string get_dir_name(const std::string& path) {
+#if defined(_WIN32)
+    char sep = '\\';
+#else
+    char sep = '/';
+#endif
+    size_t pos = path.find_last_of(sep);
+    if (pos == std::string::npos) return ".";
+    return path.substr(0, pos);
+}
+
+static std::string get_native_library_dir() {
+    // Use platform API to find the directory containing this shared library
+#if defined(_WIN32)
+    char path[MAX_PATH];
+    HMODULE hm = NULL;
+    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           (LPCSTR)&godot_java_init, &hm)) {
+        GetModuleFileNameA(hm, path, sizeof(path));
+        return get_dir_name(std::string(path));
+    }
+#elif defined(__APPLE__) || defined(__linux__)
+    Dl_info info;
+    if (dladdr((void*)&godot_java_init, &info) && info.dli_fname) {
+        return get_dir_name(std::string(info.dli_fname));
+    }
+#endif
+    return "";
+}
 
 static std::string path_join(const std::string& a, const std::string& b) {
 #if defined(_WIN32)
@@ -436,13 +474,50 @@ static std::string find_jvm_library() {
 // ---------------------------------------------------------------------------
 
 static std::string find_classpath() {
-    // Check GODOT_JAVA_CLASSPATH first (for production deployment)
+    // 1. Check GODOT_JAVA_CLASSPATH env var (explicit override)
     std::string cp = get_env("GODOT_JAVA_CLASSPATH");
     if (!cp.empty()) {
         return cp;
     }
-    // Development fallback: look for target/classes relative to the native directory
-    // This assumes project layout: godot-java-core/native/src/ -> godot-java-core/target/classes
+
+    // 2. Look for JAR files in the same directory as this native library
+    std::string lib_dir = get_native_library_dir();
+    if (!lib_dir.empty()) {
+        // Scan for .jar files in the library directory
+#if defined(_WIN32)
+        std::string pattern = lib_dir + "\\*.jar";
+        WIN32_FIND_DATAA fd;
+        HANDLE hFind = FindFirstFileA(pattern.c_str(), &fd);
+        if (hFind != INVALID_HANDLE_VALUE) {
+            std::string jar_path = path_join(lib_dir, fd.cFileName);
+            FindClose(hFind);
+            std::cout << "godot-java: Found JAR next to native library: " << jar_path << std::endl;
+            return jar_path;
+        }
+#else
+        DIR* dir = opendir(lib_dir.c_str());
+        if (dir) {
+            struct dirent* entry;
+            std::string best_jar;
+            while ((entry = readdir(dir)) != nullptr) {
+                std::string name(entry->d_name);
+                if (name.size() > 4 && name.substr(name.size() - 4) == ".jar") {
+                    // Prefer the first JAR found (or could add smarter selection)
+                    if (best_jar.empty()) {
+                        best_jar = path_join(lib_dir, name);
+                    }
+                }
+            }
+            closedir(dir);
+            if (!best_jar.empty()) {
+                std::cout << "godot-java: Found JAR next to native library: " << best_jar << std::endl;
+                return best_jar;
+            }
+        }
+#endif
+    }
+
+    // 3. Development fallback: look for target/classes relative to source
     std::string base = path_join(__FILE__, "../../..");
     std::string dev_path = path_join(base, "target/classes");
     return dev_path;

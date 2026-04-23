@@ -8,6 +8,7 @@ import org.godot.internal.api.ApiIndex;
 import org.godot.internal.api.VariantType;
 import org.godot.math.*;
 import java.lang.foreign.MemorySegment;
+import static java.lang.foreign.ValueLayout.ADDRESS;
 import static java.lang.foreign.ValueLayout.JAVA_FLOAT;
 import static java.lang.foreign.ValueLayout.JAVA_INT;
 import static java.lang.foreign.ValueLayout.JAVA_LONG;
@@ -86,6 +87,9 @@ public final class VariantUtils {
 		int type = variant.getType();
 		if (type == VariantType.NIL.id())
 			return null;
+		// Ensure segment is large enough for all variant data types (max 72 bytes for
+		// Projection)
+		MemorySegment seg = variant.getSegment().reinterpret(80);
 		if (type == VariantType.BOOL.id())
 			return variant.asBoolean();
 		if (type == VariantType.INT.id())
@@ -96,89 +100,105 @@ public final class VariantUtils {
 			return variant.asString();
 		if (type == VariantType.STRING_NAME.id()) {
 			MemorySegment retBuf = Bridge.allocate(8);
-			Bridge.callVoid(ApiIndex.VARIANT_STRINGIFY, variant.getSegment(), retBuf);
+			Bridge.callVoid(ApiIndex.VARIANT_STRINGIFY, seg, retBuf);
 			return new GodotString(retBuf).toJavaString();
 		}
 		if (type == VariantType.VECTOR2.id())
-			return readVector2(variant.getSegment());
+			return readVector2(seg);
 		if (type == VariantType.VECTOR2I.id())
-			return readVector2i(variant.getSegment());
+			return readVector2i(seg);
 		if (type == VariantType.VECTOR3.id())
-			return readVector3(variant.getSegment());
+			return readVector3(seg);
 		if (type == VariantType.VECTOR3I.id())
-			return readVector3i(variant.getSegment());
+			return readVector3i(seg);
 		if (type == VariantType.VECTOR4.id())
-			return readVector4(variant.getSegment());
+			return readVector4(seg);
 		if (type == VariantType.VECTOR4I.id())
-			return readVector4i(variant.getSegment());
+			return readVector4i(seg);
 		if (type == VariantType.RECT2.id())
-			return readRect2(variant.getSegment());
+			return readRect2(seg);
 		if (type == VariantType.RECT2I.id())
-			return readRect2i(variant.getSegment());
+			return readRect2i(seg);
 		if (type == VariantType.COLOR.id())
-			return readColor(variant.getSegment());
+			return readColor(seg);
 		if (type == VariantType.PLANE.id())
-			return readPlane(variant.getSegment());
+			return readPlane(seg);
 		if (type == VariantType.QUATERNION.id())
-			return readQuaternion(variant.getSegment());
+			return readQuaternion(seg);
 		if (type == VariantType.AABB.id())
-			return readAABB(variant.getSegment());
+			return readAABB(seg);
 		if (type == VariantType.BASIS.id())
-			return readBasis(variant.getSegment());
+			return readBasis(seg);
 		if (type == VariantType.TRANSFORM3D.id())
-			return readTransform3D(variant.getSegment());
+			return readTransform3D(seg);
 		if (type == VariantType.TRANSFORM2D.id())
-			return readTransform2D(variant.getSegment());
+			return readTransform2D(seg);
 		if (type == VariantType.PROJECTION.id())
-			return readProjection(variant.getSegment());
+			return readProjection(seg);
 		if (type == VariantType.DICTIONARY.id()) {
-			long ptr = variant.getSegment().get(JAVA_LONG, 8);
+			long ptr = seg.get(JAVA_LONG, 8);
 			return new GodotDictionary(ptr);
 		}
 		if (type == VariantType.ARRAY.id())
-			return new GodotArray(variant.getSegment());
+			return new GodotArray(seg);
 		if (type == VariantType.OBJECT.id()) {
-			long ptr = variant.getSegment().get(JAVA_LONG, 8);
+			long objectId = seg.get(JAVA_LONG, 8);
+			if (objectId == 0)
+				return null;
+			// Variant OBJECT stores ObjectID, not a pointer. Resolve to actual pointer.
+			MemorySegment objPtr = Bridge.callPtr(ApiIndex.OBJECT_GET_INSTANCE_FROM_ID, objectId);
+			long ptr = objPtr.address();
 			if (ptr == 0)
 				return null;
 			Object obj = org.godot.internal.ref.JavaObjectMap.get(ptr);
 			if (obj != null)
 				return obj;
+			// Query Godot class name and create typed wrapper
+			Godot typed = org.godot.internal.GodotClassRegistry.createTypedWrapper(ptr);
+			if (typed != null) {
+				org.godot.internal.ref.JavaObjectMap.put(ptr, typed);
+				return typed;
+			}
 			return new org.godot.internal.ref.GenericGodotObject(ptr, "Object");
 		}
 		if (type == VariantType.RID.id())
-			return variant.getSegment().get(JAVA_LONG, 8);
+			return seg.get(JAVA_LONG, 8);
 		if (type == VariantType.CALLABLE.id())
 			return new Callable(null, "");
 		if (type == VariantType.SIGNAL.id()) {
-			long objPtr = variant.getSegment().get(JAVA_LONG, 8);
+			long objPtr = seg.get(JAVA_LONG, 8);
 			if (objPtr == 0)
 				return new Signal(null, "");
 			Godot obj = (Godot) org.godot.internal.ref.JavaObjectMap.get(objPtr);
+			if (obj == null) {
+				obj = org.godot.internal.GodotClassRegistry.createTypedWrapper(objPtr);
+				if (obj != null)
+					org.godot.internal.ref.JavaObjectMap.put(objPtr, obj);
+			}
 			if (obj == null)
 				obj = new org.godot.internal.ref.GenericGodotObject(objPtr, "Object");
 			return new Signal(obj, "");
 		}
 		if (type == VariantType.PACKED_BYTE_ARRAY.id())
-			return readPackedByteArray(variant.getSegment());
+			return readPackedByteArray(seg);
 		if (type == VariantType.PACKED_INT32_ARRAY.id())
-			return readPackedInt32Array(variant.getSegment());
+			return readPackedInt32Array(seg);
 		if (type == VariantType.PACKED_INT64_ARRAY.id())
-			return readPackedInt64Array(variant.getSegment());
+			return readPackedInt64Array(seg);
 		if (type == VariantType.PACKED_FLOAT32_ARRAY.id())
-			return readPackedFloat32Array(variant.getSegment());
+			return readPackedFloat32Array(seg);
 		if (type == VariantType.PACKED_FLOAT64_ARRAY.id())
-			return readPackedFloat64Array(variant.getSegment());
+			return readPackedFloat64Array(seg);
 		if (type == VariantType.PACKED_STRING_ARRAY.id())
-			return readPackedStringArray(variant.getSegment());
+			return readPackedStringArray(seg);
 		if (type == VariantType.PACKED_VECTOR2_ARRAY.id())
-			return readPackedVector2Array(variant.getSegment());
+			return readPackedVector2Array(seg);
 		if (type == VariantType.PACKED_VECTOR3_ARRAY.id())
-			return readPackedVector3Array(variant.getSegment());
+			return readPackedVector3Array(seg);
 		if (type == VariantType.PACKED_COLOR_ARRAY.id())
-			return readPackedColorArray(variant.getSegment());
+			return readPackedColorArray(seg);
 		if (type == VariantType.PACKED_VECTOR4_ARRAY.id())
-			return readPackedVector4Array(variant.getSegment());
+			return readPackedVector4Array(seg);
 		return variant.asString();
 	}
 
@@ -649,13 +669,40 @@ public final class VariantUtils {
 	}
 
 	private static Variant fromCallable(Callable callable) {
-		MemorySegment seg = Bridge.allocVariant();
-		seg.set(JAVA_INT, 0, VariantType.CALLABLE.id());
-		// If the callable has a non-null object, create a native callable
-		if (callable.getObject() != null) {
-			NativeCallable nativeCallable = callable.asNativeCallable();
-			seg.set(JAVA_LONG, 8, nativeCallable.getPtr());
+		if (callable.getObject() == null) {
+			MemorySegment seg = Bridge.allocVariant();
+			seg.set(JAVA_INT, 0, VariantType.CALLABLE.id());
+			return new Variant(seg);
 		}
+
+		// Register dispatch and create native callable via callable_custom_create2
+		long key = org.godot.bridge.CallableDispatch.registerCallable(callable.getObject(), callable.getMethod());
+
+		// Allocate Callable variant (24 bytes: 4 type + 4 padding + 16 data)
+		MemorySegment seg = Bridge.arena().allocate(Variant.SIZE, 8);
+		seg.set(JAVA_INT, 0, VariantType.CALLABLE.id());
+
+		// Allocate GDExtensionCallableCustomInfo2 struct (96 bytes)
+		MemorySegment infoSeg = Bridge.allocate(96);
+		for (long i = 0; i < 96; i += 8) {
+			infoSeg.set(ADDRESS, i, MemorySegment.ofAddress(0));
+		}
+
+		// Fill GDExtensionCallableCustomInfo2:
+		// 0: callable_userdata (dispatch key as pointer)
+		infoSeg.set(ADDRESS, 0, MemorySegment.ofAddress(key));
+		// 8: token (library pointer)
+		infoSeg.set(ADDRESS, 8, MemorySegment.ofAddress(Bridge.libraryPtr()));
+		// 16: object_id (instance ID, not pointer)
+		long instanceId = Bridge.callLong(ApiIndex.OBJECT_GET_INSTANCE_ID,
+				MemorySegment.ofAddress(callable.getObject().getPtr()));
+		infoSeg.set(JAVA_LONG, 16, instanceId);
+		// 24: call_func
+		infoSeg.set(ADDRESS, 24, org.godot.bridge.CallableDispatch.getCallStub());
+
+		// Call callable_custom_create2(r_callable, info)
+		Bridge.callVoid(ApiIndex.CALLABLE_CUSTOM_CREATE2, seg.asSlice(8), infoSeg);
+
 		return new Variant(seg);
 	}
 

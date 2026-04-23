@@ -1,7 +1,5 @@
 package examples.nodetree;
 
-import java.util.List;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.godot.annotation.GodotClass;
@@ -11,8 +9,8 @@ import org.godot.node.Node;
 /**
  * Example 06: Node Tree
  *
- * Demonstrates scene tree traversal: getChildren, getName, addChild, getNode.
- * Prints the tree structure to console for debugging.
+ * Demonstrates scene tree traversal: get_children, getName, add_child. Prints
+ * the tree structure to console for debugging.
  */
 @GodotClass(name = "Spawner", parent = "Node")
 public class Spawner extends Node {
@@ -21,16 +19,17 @@ public class Spawner extends Node {
 
 	@Override
 	public void _ready() {
-		logger.info("Spawner ready! Children: {}", getChildren().size());
+		Node[] children = get_children(false);
+		logger.info("Spawner ready! Children: {}", children.length);
 	}
 
 	@GodotMethod
 	public void describeTree() {
+		Node[] children = get_children(false);
 		logger.info("--- Scene Tree ---");
-		logger.info("Spawner (children: {})", getChildren().size());
-		List<Node> children = getChildren();
-		for (int i = 0; i < children.size(); i++) {
-			Node child = children.get(i);
+		logger.info("Spawner (children: {})", children.length);
+		for (int i = 0; i < children.length; i++) {
+			Node child = children[i];
 			logger.info("  [{}] ptr={} valid={}", i, Long.toHexString(child.getPtr()), child.isValid());
 		}
 		logger.info("--- End ---");
@@ -40,7 +39,7 @@ public class Spawner extends Node {
 	public void spawnChild(String name) {
 		Node child = Node.create();
 		child.setName(name);
-		addChild(child);
+		add_child(child, false, 0);
 		logger.info("Spawned child: {}", name);
 	}
 }

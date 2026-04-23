@@ -90,7 +90,8 @@ public final class NativeCallable {
 		// 80: get_argument_count_func
 		infoSeg.set(ADDRESS, 0, MemorySegment.ofAddress(key)); // callable_userdata = dispatch key
 		infoSeg.set(ADDRESS, 8, MemorySegment.ofAddress(TOKEN)); // token = library ptr
-		infoSeg.set(JAVA_LONG, 16, object.getPtr()); // object_id
+		long instanceId = Bridge.callLong(ApiIndex.OBJECT_GET_INSTANCE_ID, MemorySegment.ofAddress(object.getPtr()));
+		infoSeg.set(JAVA_LONG, 16, instanceId); // object_id
 		infoSeg.set(ADDRESS, 24, CallableDispatch.getCallStub()); // call_func
 
 		// Optional function pointers — set to NULL (use defaults)

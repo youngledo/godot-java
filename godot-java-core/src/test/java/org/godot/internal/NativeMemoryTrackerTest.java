@@ -67,6 +67,14 @@ public class NativeMemoryTrackerTest {
 	}
 
 	@Test
+	void dump_returnsCorrectFormat() {
+		String dump = NativeMemoryTracker.dump();
+		assertNotNull(dump);
+		assertTrue(dump.contains("liveAllocations="));
+		assertTrue(dump.contains("liveBytes="));
+	}
+
+	@Test
 	void getStats_containsExpectedFields() {
 		String stats = NativeMemoryTracker.getStats();
 		assertNotNull(stats);

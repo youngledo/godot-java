@@ -147,11 +147,11 @@ public class IntegrationTestNode extends Node {
 		}
 
 		// Set custom minimum size using Vector2
-		control.setCustomMinimumSize(new Vector2(100, 50));
+		control.setCustom_minimum_size(new Vector2(100, 50));
 
 		// Get the minimum width and height
-		double minWidth = control.getMinimumWidth();
-		double minHeight = control.getMinimumHeight();
+		double minWidth = control.getCustom_minimum_size().x;
+		double minHeight = control.getCustom_minimum_size().y;
 
 		// Verify - custom minimum size should be reflected in getMinimumWidth/Height
 		// Note: getMinimumWidth/Height returns the current minimum size which

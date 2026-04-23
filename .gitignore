@@ -19,5 +19,8 @@ bin/
 ### Native build output
 godot-java-core/native/build/
 
+### macOS
+.DS_Store
+
 ### Log
 *.log

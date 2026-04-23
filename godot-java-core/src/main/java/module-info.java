@@ -16,6 +16,7 @@
  */
 module org.godot {
 	requires java.base;
+	requires java.compiler;
 	requires org.apache.logging.log4j;
 
 	// Public API packages
