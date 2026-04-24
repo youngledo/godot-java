@@ -9,6 +9,7 @@ import org.godot.internal.api.VariantType;
 import org.godot.math.*;
 import java.lang.foreign.MemorySegment;
 import static java.lang.foreign.ValueLayout.ADDRESS;
+import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 import static java.lang.foreign.ValueLayout.JAVA_FLOAT;
 import static java.lang.foreign.ValueLayout.JAVA_INT;
 import static java.lang.foreign.ValueLayout.JAVA_LONG;
@@ -79,6 +80,44 @@ public final class VariantUtils {
 
 	private static Variant fromGodotObject(Godot godot) {
 		return Variant.fromObjectPtr(godot.getPtr());
+	}
+
+	/**
+	 * Write a Java object value directly into an uninitialized Variant memory
+	 * segment. Uses byte-level writes to handle unaligned ret pointers from virtual
+	 * dispatch upcalls (e.g. address 0x18e24ea2a).
+	 */
+	public static void writeVariantFromObject(MemorySegment ret, Object value) {
+		if (value == null)
+			return;
+		long addr = ret.address();
+		MemorySegment seg = MemorySegment.ofAddress(addr).reinterpret(24);
+		if (value instanceof Boolean b) {
+			writeUnalignedInt(seg, 0, VariantType.BOOL.id());
+			seg.set(JAVA_BYTE, 8, (byte) (b ? 1 : 0));
+		} else if (value instanceof Integer || value instanceof Long) {
+			writeUnalignedInt(seg, 0, VariantType.INT.id());
+			writeUnalignedLong(seg, 8, ((Number) value).longValue());
+		} else if (value instanceof Float || value instanceof Double) {
+			writeUnalignedInt(seg, 0, VariantType.FLOAT.id());
+			writeUnalignedLong(seg, 8, Double.doubleToRawLongBits(((Number) value).doubleValue()));
+		} else {
+			Variant v = fromObject(value);
+			Bridge.callVoid(org.godot.internal.api.ApiIndex.VARIANT_NEW_COPY, ret, v.getSegment());
+		}
+	}
+
+	private static void writeUnalignedInt(MemorySegment seg, long offset, int value) {
+		seg.set(JAVA_BYTE, offset, (byte) (value & 0xFF));
+		seg.set(JAVA_BYTE, offset + 1, (byte) ((value >> 8) & 0xFF));
+		seg.set(JAVA_BYTE, offset + 2, (byte) ((value >> 16) & 0xFF));
+		seg.set(JAVA_BYTE, offset + 3, (byte) ((value >> 24) & 0xFF));
+	}
+
+	private static void writeUnalignedLong(MemorySegment seg, long offset, long value) {
+		for (int i = 0; i < 8; i++) {
+			seg.set(JAVA_BYTE, offset + i, (byte) ((value >> (i * 8)) & 0xFF));
+		}
 	}
 
 	public static Object toObject(Variant variant) {

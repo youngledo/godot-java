@@ -1,7 +1,5 @@
 package org.godot.registration;
 
-import org.godot.Godot;
-import org.godot.annotation.GodotClass;
 import org.godot.bridge.Bridge;
 import org.godot.bridge.InstanceCallbacks;
 import org.godot.bridge.MethodDispatch;
@@ -10,6 +8,7 @@ import org.godot.bridge.PropertyRegistration;
 import org.godot.bridge.SignalRegistration;
 import org.godot.core.GodotStringName;
 import org.godot.internal.api.ApiIndex;
+import org.godot.internal.dispatch.Dispatch;
 import java.lang.foreign.MemorySegment;
 import java.util.List;
 
@@ -81,23 +80,21 @@ public final class Registry {
 	 * populated with create_instance_func / free_instance_func upcall stubs that
 	 * allow Godot to instantiate Java objects.
 	 */
-	@SuppressWarnings("unchecked")
 	public static RegistrationStats registerClass(Class<?> cls) {
-		GodotClass annotation = cls.getAnnotation(GodotClass.class);
-		if (annotation == null) {
+		String className = Dispatch.getGodotClassName(cls.getName());
+		if (className == null) {
 			return null;
 		}
 		RegistrationStats stats = new RegistrationStats();
 
-		String className = annotation.name();
-		String parentName = annotation.parent();
+		String parentName = Dispatch.getParentClass(className);
 
 		// Convert class names to Godot StringNames (required by ClassDB APIs)
 		GodotStringName classNameSn = GodotStringName.fromJavaString(className);
 		GodotStringName parentNameSn = GodotStringName.fromJavaString(parentName);
 
 		// Register the Java class for instantiation by create_instance_func
-		InstanceCallbacks.registerClass(className, (Class<? extends Godot>) cls);
+		InstanceCallbacks.registerClass(className);
 
 		// Create the GDExtensionClassCreationInfo4 struct with upcall stubs
 		MemorySegment creationInfo = InstanceCallbacks.createCreationInfo(className);

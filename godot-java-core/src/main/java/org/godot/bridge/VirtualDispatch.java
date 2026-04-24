@@ -3,12 +3,11 @@ package org.godot.bridge;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.godot.Godot;
-import org.godot.annotation.GodotClass;
 import org.godot.core.GodotStringName;
-import org.godot.core.Variant;
-import org.godot.core.VariantUtils;
+import org.godot.internal.GodotClassRegistry;
 import org.godot.internal.api.ApiIndex;
 import org.godot.internal.api.VirtualMethods;
+import org.godot.internal.dispatch.Dispatch;
 import org.godot.internal.ref.JavaObjectMap;
 
 import java.lang.foreign.FunctionDescriptor;
@@ -16,8 +15,6 @@ import java.lang.foreign.MemorySegment;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
-import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -37,9 +34,9 @@ import static java.lang.foreign.ValueLayout.*;
  * Architecture (aligned with gdext/Rust bindings):
  * <ol>
  * <li><b>Compile-time hash resolution</b> — the APT processor generates
- * {@code VirtualDispatch_<ParentClass>} with exact hashes from the parent class
- * hierarchy, aligned with gdext's proc-macro approach. This eliminates false
- * matches from unrelated classes.</li>
+ * dispatch data with exact hashes from the parent class hierarchy, aligned with
+ * gdext's proc-macro approach. This eliminates false matches from unrelated
+ * classes.</li>
  * <li><b>Lazy stub creation</b> — upcall stubs are created only for methods the
  * user actually overrides. No wasted stubs for 1000+ unneeded virtual
  * methods.</li>
@@ -47,10 +44,14 @@ import static java.lang.foreign.ValueLayout.*;
  * upcall stub with the class name pre-bound. Returns NULL for non-overridden
  * methods so Godot uses its default C++ implementation.</li>
  * <li><b>Hash → name reverse lookup</b> — Godot identifies virtuals by
- * compatibility hash. The APT-generated per-parent-class map resolves hash to
- * candidate method names (typically 2-5, not 50+). Hash collisions within a
- * hierarchy are resolved by StringName pointer comparison.</li>
+ * compatibility hash. The Dispatch facade resolves hash to candidate method
+ * names (typically 2-5, not 50+). Hash collisions within a hierarchy are
+ * resolved by StringName pointer comparison.</li>
  * </ol>
+ * <p>
+ * All reflection has been eliminated. Override discovery, hash resolution, and
+ * virtual dispatch are handled by the APT-generated DispatchIndex via the
+ * {@link Dispatch} facade.
  */
 public final class VirtualDispatch {
 
@@ -69,14 +70,8 @@ public final class VirtualDispatch {
 	/** Per-class dispatch metadata: godotClassName → dispatch data. */
 	private static final Map<String, ClassDispatchData> CLASS_DISPATCH_DATA = new ConcurrentHashMap<>();
 
-	/** Per-class method cache: Java Class → (method name → Method). */
-	private static final Map<Class<?>, Map<String, Method>> PER_CLASS_METHOD_CACHE = new ConcurrentHashMap<>();
-
-	/** Cache for APT-generated per-parent-class dispatch data. */
-	private static final Map<String, AptDispatchData> APT_DISPATCH_CACHE = new ConcurrentHashMap<>();
-
 	// ------------------------------------------------------------------------
-	// AptDispatchData — loaded from APT-generated VirtualDispatch_<Parent> classes
+	// AptDispatchData — loaded from Dispatch facade
 	// ------------------------------------------------------------------------
 
 	private static class AptDispatchData {
@@ -92,7 +87,9 @@ public final class VirtualDispatch {
 	private static class ClassDispatchData {
 		final Map<String, MethodEntry> methodsByName;
 		final Set<String> overriddenNames;
-		/** Per-parent-class hash map (from APT), or null to use global fallback. */
+		/**
+		 * Per-parent-class hash map (from Dispatch), or null to use global fallback.
+		 */
 		final AptDispatchData aptData;
 
 		ClassDispatchData(Map<String, MethodEntry> methodsByName, Set<String> overriddenNames,
@@ -107,16 +104,11 @@ public final class VirtualDispatch {
 		final String methodName;
 		final MemorySegment callStub;
 		final long nameDataPtr;
-		final MethodHandle handle;
-		final Class<?>[] paramTypes;
 
-		MethodEntry(String methodName, MemorySegment callStub, long nameDataPtr, MethodHandle handle,
-				Class<?>[] paramTypes) {
+		MethodEntry(String methodName, MemorySegment callStub, long nameDataPtr) {
 			this.methodName = methodName;
 			this.callStub = callStub;
 			this.nameDataPtr = nameDataPtr;
-			this.handle = handle;
-			this.paramTypes = paramTypes;
 		}
 	}
 
@@ -131,37 +123,26 @@ public final class VirtualDispatch {
 			JAVA_LONG);
 
 	// ------------------------------------------------------------------------
-	// APT-generated data loading
+	// APT-generated data loading via Dispatch facade
 	// ------------------------------------------------------------------------
 
 	/**
-	 * Load APT-generated per-parent-class dispatch data via reflection. Returns
-	 * null if no APT data is available (falls back to global map).
+	 * Load APT-generated per-parent-class dispatch data via the Dispatch facade.
+	 * Returns null if no APT data is available (falls back to global map).
 	 */
-
-	@SuppressWarnings("unchecked")
 	private static AptDispatchData loadAptDispatchData(String parentClassName) {
-		return APT_DISPATCH_CACHE.computeIfAbsent(parentClassName, parent -> {
-			try {
-				Class<?> dispatchClass = Class.forName("org.godot.internal.VirtualDispatch_" + parent);
-				java.lang.reflect.Field htnField = dispatchClass.getDeclaredField("HASH_TO_NAMES");
-				htnField.setAccessible(true);
-				@SuppressWarnings("unchecked")
-				Map<Long, Set<String>> hashToNames = (Map<Long, Set<String>>) htnField.get(null);
-				java.lang.reflect.Field avnField = dispatchClass.getDeclaredField("ALL_VIRTUAL_NAMES");
-				avnField.setAccessible(true);
-				Set<String> allVirtualNames = (Set<String>) avnField.get(null);
-				logger.debug("Loaded APT dispatch data for parent '{}': {} virtual methods", parent,
-						allVirtualNames.size());
-				return new AptDispatchData(hashToNames, allVirtualNames);
-			} catch (ClassNotFoundException e) {
-				logger.debug("No APT dispatch data for parent '{}', using global fallback", parent);
-				return null;
-			} catch (ReflectiveOperationException e) {
-				logger.warn("Failed to load APT dispatch data for parent '{}': {}", parent, e.getMessage());
-				return null;
-			}
-		});
+		Map<Long, Set<String>> hashToNames = Dispatch.getVirtualHashToNames(parentClassName);
+		Set<String> allVirtualNames = Dispatch.getVirtualAllNames(parentClassName);
+
+		if ((hashToNames == null || hashToNames.isEmpty()) && (allVirtualNames == null || allVirtualNames.isEmpty())) {
+			logger.debug("No APT dispatch data for parent '{}', using global fallback", parentClassName);
+			return null;
+		}
+
+		logger.debug("Loaded dispatch data for parent '{}': {} virtual methods", parentClassName,
+				allVirtualNames != null ? allVirtualNames.size() : 0);
+		return new AptDispatchData(hashToNames != null ? hashToNames : Map.of(),
+				allVirtualNames != null ? allVirtualNames : Set.of());
 	}
 
 	// ------------------------------------------------------------------------
@@ -170,17 +151,17 @@ public final class VirtualDispatch {
 
 	public static MemorySegment getGetVirtualFuncStubForClass(String godotClassName) {
 		return PER_CLASS_GET_VIRTUAL_STUBS.computeIfAbsent(godotClassName, name -> {
-			Class<?> javaClass = InstanceCallbacks.getJavaClass(name);
-			Set<String> overriddenMethods = javaClass != null ? scanOverrides(javaClass) : Set.of();
+			// Get override set from Dispatch (APT-generated, zero reflection)
+			Set<String> overriddenMethods = Dispatch.getVirtualOverrides(name);
+			if (overriddenMethods == null || overriddenMethods.isEmpty()) {
+				overriddenMethods = Set.of();
+			}
 
 			// Try APT-generated per-parent-class data first
 			String parentClass = InstanceCallbacks.getParentClassName(name);
 			AptDispatchData aptData = parentClass != null ? loadAptDispatchData(parentClass) : null;
 
 			Set<String> allVirtualNames = aptData != null ? aptData.allVirtualNames : getAllVirtualNames();
-
-			// Try to load APT-generated per-class virtual dispatch methods
-			Map<String, MethodHandle> generatedDispatch = loadGeneratedDispatchMethods(name);
 
 			Map<String, MethodEntry> methodsByName = new HashMap<>();
 			Set<String> matchedNames = new HashSet<>();
@@ -200,46 +181,17 @@ public final class VirtualDispatch {
 					GodotStringName sn = GodotStringName.fromJavaString(godotName);
 					long nameDataPtr = sn.segment().get(ADDRESS, 0).address();
 
-					MemorySegment callStub;
-					MethodHandle methodHandle = null;
-					Class<?>[] paramTypes = null;
+					// Create dispatch stub that delegates to Dispatch.dispatchVirtual()
+					MethodHandle adapter = MethodHandles.lookup().findStatic(VirtualDispatch.class,
+							"callVirtualAdapter", MethodType.methodType(void.class, String.class, MemorySegment.class,
+									MemorySegment.class, long.class, MemorySegment.class));
+					MethodHandle bound = MethodHandles.insertArguments(adapter, 0, godotName);
+					MemorySegment callStub = Bridge.linker().upcallStub(bound, CALL_VIRTUAL_FD, Bridge.arena());
 
-					// Try APT-generated dispatch first
-					String dispatchMethodName = "dispatch_" + methodName.substring(1);
-					MethodHandle generatedMH = generatedDispatch != null
-							? generatedDispatch.get(dispatchMethodName)
-							: null;
-
-					if (generatedMH != null) {
-						// Use APT-generated dispatch — zero-reflection path
-						callStub = Bridge.linker().upcallStub(generatedMH, CALL_VIRTUAL_FD, Bridge.arena());
-					} else {
-						// Fall back to reflection-based adapter
-						MethodHandle adapter = MethodHandles.lookup().findStatic(VirtualDispatch.class,
-								"callVirtualAdapter", MethodType.methodType(void.class, String.class,
-										MemorySegment.class, MemorySegment.class, long.class, MemorySegment.class));
-						MethodHandle bound = MethodHandles.insertArguments(adapter, 0, godotName);
-						callStub = Bridge.linker().upcallStub(bound, CALL_VIRTUAL_FD, Bridge.arena());
-
-						// Pre-create MethodHandle for fast-path inside callVirtualAdapter
-						try {
-							Method m = findMethodOnClassHierarchy(javaClass, godotName);
-							if (m != null) {
-								m.setAccessible(true);
-								methodHandle = MethodHandles.lookup().unreflect(m)
-										.asType(MethodType.methodType(m.getReturnType(), Godot.class)
-												.appendParameterTypes(m.getParameterTypes()));
-								paramTypes = m.getParameterTypes();
-							}
-						} catch (Exception e) {
-							logger.trace("Could not create MethodHandle for {}", godotName);
-						}
-					}
-
-					MethodEntry entry = new MethodEntry(godotName, callStub, nameDataPtr, methodHandle, paramTypes);
+					MethodEntry entry = new MethodEntry(godotName, callStub, nameDataPtr);
 					methodsByName.put(godotName, entry);
 					matchedNames.add(godotName);
-				} catch (ReflectiveOperationException e) {
+				} catch (Exception e) {
 					logger.warn("Failed to create call stub for virtual method '{}': {}", godotName, e.getMessage());
 				}
 			}
@@ -257,7 +209,7 @@ public final class VirtualDispatch {
 				logger.info("Created per-class get_virtual_func for '{}' ({} overrides: {}, {})", name,
 						matchedNames.size(), matchedNames, dataSource);
 				return stub;
-			} catch (ReflectiveOperationException e) {
+			} catch (Exception e) {
 				throw new RuntimeException("Failed to create get_virtual_func stub for " + name, e);
 			}
 		});
@@ -327,7 +279,7 @@ public final class VirtualDispatch {
 	}
 
 	// ------------------------------------------------------------------------
-	// callVirtualAdapter — dispatch to user's Java method
+	// callVirtualAdapter — dispatch to user's Java method via Dispatch
 	// ------------------------------------------------------------------------
 
 	static void callVirtualAdapter(String methodName, MemorySegment instance, MemorySegment args, long argCount,
@@ -349,152 +301,46 @@ public final class VirtualDispatch {
 			return;
 		}
 
-		// Try pre-cached dispatch data (avoids per-call Method lookup)
-		MethodEntry cachedEntry = findMethodEntry(obj.getClass(), methodName);
-		if (cachedEntry != null && cachedEntry.handle != null) {
-			try {
-				Object[] javaArgs = cachedEntry.paramTypes != null && cachedEntry.paramTypes.length > 0
-						? convertArgs0(args, cachedEntry.paramTypes)
-						: new Object[0];
-				Object result = cachedEntry.handle.invokeWithArguments(prependReceiver(obj, javaArgs));
+		// Resolve the Godot class name for this object
+		String godotClassName = resolveGodotClassName(obj);
 
-				if (ret.address() != 0) {
-					if (result != null) {
-						Variant retVar = VariantUtils.fromObject(result);
-						Bridge.callVoid(ApiIndex.VARIANT_NEW_COPY, ret, retVar.getSegment());
-					} else {
-						writeNil(ret);
-					}
-				}
+		if (godotClassName != null && Dispatch.isAvailable()) {
+			try {
+				Dispatch.dispatchVirtual(godotClassName, methodName, instance, args, argCount, ret);
 				return;
-			} catch (Throwable t) {
-				logger.error("VirtualDispatch cached dispatch error in {}: {}", methodName, t.getMessage(), t);
+			} catch (Exception e) {
+				logger.error("VirtualDispatch dispatchVirtual error in {}: {}", methodName, e.getMessage(), e);
 				writeNil(ret);
 				return;
 			}
 		}
 
-		// Fallback: reflection-based dispatch
-		Method javaMethod = findMethodOnClassHierarchy(obj.getClass(), methodName);
-		if (javaMethod == null) {
-			logger.warn("VirtualDispatch: method {} not found on {}", methodName, obj.getClass().getName());
-			writeNil(ret);
-			return;
-		}
-
-		try {
-			Object[] javaArgs = convertArgs(javaMethod, args);
-			Object result = javaMethod.invoke(obj, javaArgs);
-
-			if (ret.address() != 0) {
-				if (result != null) {
-					Variant retVar = VariantUtils.fromObject(result);
-					Bridge.callVoid(ApiIndex.VARIANT_NEW_COPY, ret, retVar.getSegment());
-				} else {
-					writeNil(ret);
-				}
-			}
-		} catch (Throwable t) {
-			logger.error("VirtualDispatch error in {}: {}", methodName, t.getMessage(), t);
-			writeNil(ret);
-		}
+		// Fallback when Dispatch is not available — should not happen in normal
+		// operation
+		logger.warn("VirtualDispatch: no dispatch path for method {} on {} (Dispatch available={})", methodName,
+				obj.getClass().getName(), Dispatch.isAvailable());
+		writeNil(ret);
 	}
 
 	/**
-	 * Find a cached MethodEntry by walking the class hierarchy and checking
-	 * dispatch data.
+	 * Resolve the Godot class name from a Java object using the Dispatch facade
+	 * (APT-generated FQN-to-godot-name mapping).
 	 */
-	private static MethodEntry findMethodEntry(Class<?> javaClass, String methodName) {
-		// Walk class hierarchy to find the @GodotClass annotation
-		Class<?> current = javaClass;
+	private static String resolveGodotClassName(Godot obj) {
+		String name = Dispatch.getGodotClassName(obj.getClass().getName());
+		if (name != null) {
+			return name;
+		}
+		// Walk superclass hierarchy as fallback
+		Class<?> current = obj.getClass().getSuperclass();
 		while (current != null && current != Godot.class) {
-			GodotClass ann = current.getAnnotation(GodotClass.class);
-			if (ann != null) {
-				ClassDispatchData data = CLASS_DISPATCH_DATA.get(ann.name());
-				if (data != null) {
-					MethodEntry entry = data.methodsByName.get(methodName);
-					if (entry != null)
-						return entry;
-					// Try java-style name
-					String godotName = javaToGodotMethodName(methodName);
-					entry = data.methodsByName.get(godotName);
-					if (entry != null)
-						return entry;
-				}
+			name = Dispatch.getGodotClassName(current.getName());
+			if (name != null) {
+				return name;
 			}
 			current = current.getSuperclass();
 		}
 		return null;
-	}
-
-	private static Object[] prependReceiver(Object receiver, Object[] args) {
-		Object[] result = new Object[1 + args.length];
-		result[0] = receiver;
-		System.arraycopy(args, 0, result, 1, args.length);
-		return result;
-	}
-
-	// ------------------------------------------------------------------------
-	// Argument conversion
-	// ------------------------------------------------------------------------
-
-	private static Object[] convertArgs(Method javaMethod, MemorySegment args) {
-		return convertArgs0(args, javaMethod.getParameterTypes());
-	}
-
-	private static Object[] convertArgs0(MemorySegment args, Class<?>[] paramTypes) {
-		int n = paramTypes.length;
-		if (n == 0) {
-			return new Object[0];
-		}
-
-		// Read argument pointers using raw addresses to avoid byteSize=0 issues
-		long argsAddr = args.address();
-		Object[] result = new Object[n];
-		for (int i = 0; i < n; i++) {
-			Class<?> pt = paramTypes[i];
-			// Read p_args[i] — a pointer to argument data
-			long argDataAddr = MemorySegment.ofAddress(argsAddr).reinterpret(ADDRESS.byteSize()).get(JAVA_LONG, 0);
-			argsAddr += ADDRESS.byteSize();
-
-			if (argDataAddr == 0) {
-				result[i] = null;
-				continue;
-			}
-
-			if (pt == double.class || pt == Double.class) {
-				result[i] = MemorySegment.ofAddress(argDataAddr).reinterpret(8).get(JAVA_DOUBLE, 0);
-			} else if (pt == float.class || pt == Float.class) {
-				result[i] = (float) MemorySegment.ofAddress(argDataAddr).reinterpret(4).get(JAVA_FLOAT, 0);
-			} else if (pt == int.class || pt == Integer.class) {
-				result[i] = MemorySegment.ofAddress(argDataAddr).reinterpret(4).get(JAVA_INT, 0);
-			} else if (pt == long.class || pt == Long.class) {
-				result[i] = MemorySegment.ofAddress(argDataAddr).reinterpret(8).get(JAVA_LONG, 0);
-			} else if (pt == boolean.class || pt == Boolean.class) {
-				result[i] = MemorySegment.ofAddress(argDataAddr).reinterpret(1).get(JAVA_BYTE, 0) != 0;
-			} else if (pt == String.class) {
-				MemorySegment argPtr = MemorySegment.ofAddress(argDataAddr).reinterpret(256);
-				result[i] = new org.godot.core.GodotString(argPtr);
-			} else {
-				// Object type: argDataAddr points to a GDExtensionObjectPtr
-				long ptr = MemorySegment.ofAddress(argDataAddr).reinterpret(ADDRESS.byteSize()).get(JAVA_LONG, 0);
-				if (ptr == 0) {
-					result[i] = null;
-				} else if (Godot.class.isAssignableFrom(pt)) {
-					// Create a typed wrapper matching the expected parameter type
-					Godot existing = JavaObjectMap.get(ptr);
-					if (existing != null && pt.isInstance(existing)) {
-						result[i] = existing;
-					} else {
-						result[i] = wrapObject((Class<? extends Godot>) pt, ptr);
-					}
-				} else {
-					Variant objVar = Variant.fromObjectPtr(ptr);
-					result[i] = VariantUtils.toObject(objVar);
-				}
-			}
-		}
-		return result;
 	}
 
 	// ------------------------------------------------------------------------
@@ -511,11 +357,10 @@ public final class VirtualDispatch {
 	// Typed Godot object wrapping (used by APT-generated dispatch code)
 	// ------------------------------------------------------------------------
 
-	private static final Map<Class<?>, MethodHandle> WRAPPER_CTORS = new ConcurrentHashMap<>();
-
 	/**
-	 * Create or reuse a typed Godot wrapper for a native object pointer. Used by
-	 * APT-generated VirtualMethodDispatch classes.
+	 * Create or reuse a typed Godot wrapper for a native object pointer. Uses
+	 * GodotClassRegistry for zero-reflection instantiation, with fallback to
+	 * GenericGodotObject.
 	 */
 	@SuppressWarnings("unchecked")
 	public static <T extends Godot> T wrapObject(Class<T> type, long ptr) {
@@ -524,58 +369,14 @@ public final class VirtualDispatch {
 			return (T) existing;
 		}
 
-		MethodHandle ctor = WRAPPER_CTORS.computeIfAbsent(type, t -> {
-			try {
-				MethodHandles.Lookup lookup = MethodHandles.privateLookupIn(t, MethodHandles.lookup());
-				return lookup.findConstructor(t, MethodType.methodType(void.class, long.class));
-			} catch (Exception e1) {
-				try {
-					MethodHandles.Lookup lookup = MethodHandles.privateLookupIn(t, MethodHandles.lookup());
-					return lookup.findConstructor(t, MethodType.methodType(void.class, MemorySegment.class));
-				} catch (Exception e2) {
-					return null;
-				}
-			}
-		});
-
-		if (ctor != null) {
-			try {
-				return (T) ctor.invoke(ptr);
-			} catch (Throwable t) {
-				return (T) new GenericGodotObject(ptr, "Object");
-			}
+		// Try GodotClassRegistry (zero-reflection, generated at compile time)
+		Godot created = GodotClassRegistry.create(type.getSimpleName(), ptr);
+		if (created != null && type.isInstance(created)) {
+			return (T) created;
 		}
+
+		// Fallback to generic wrapper
 		return (T) new GenericGodotObject(ptr, "Object");
-	}
-
-	// ------------------------------------------------------------------------
-	// APT-generated dispatch loading
-	// ------------------------------------------------------------------------
-
-	/**
-	 * Load dispatch MethodHandles from APT-generated VirtualMethodDispatch_<Class>.
-	 * Returns null if no generated dispatch is available.
-	 */
-	private static Map<String, MethodHandle> loadGeneratedDispatchMethods(String godotClassName) {
-		try {
-			Class<?> dispatchClass = Class.forName("org.godot.internal.VirtualMethodDispatch_" + godotClassName);
-			Map<String, MethodHandle> dispatches = new HashMap<>();
-			for (Method m : dispatchClass.getDeclaredMethods()) {
-				if (m.getName().startsWith("dispatch_")) {
-					m.setAccessible(true);
-					dispatches.put(m.getName(), MethodHandles.lookup().unreflect(m));
-				}
-			}
-			if (!dispatches.isEmpty()) {
-				logger.debug("Loaded {} generated dispatch methods for {}", dispatches.size(), godotClassName);
-				return dispatches;
-			}
-		} catch (ClassNotFoundException e) {
-			logger.debug("No VirtualMethodDispatch_{} found, using reflection fallback", godotClassName);
-		} catch (Exception e) {
-			logger.warn("Failed to load VirtualMethodDispatch_{}: {}", godotClassName, e.getMessage());
-		}
-		return null;
 	}
 
 	// ------------------------------------------------------------------------
@@ -588,67 +389,6 @@ public final class VirtualDispatch {
 			names.addAll(nameSet);
 		}
 		return names;
-	}
-
-	// ------------------------------------------------------------------------
-	// Reflection helpers
-	// ------------------------------------------------------------------------
-
-	private static Set<String> scanOverrides(Class<?> javaClass) {
-		Set<String> overrides = new HashSet<>();
-		Class<?> current = javaClass;
-		while (current != null && current != Godot.class) {
-			for (Method m : current.getDeclaredMethods()) {
-				if (m.getName().startsWith("_") && Modifier.isPublic(m.getModifiers())) {
-					overrides.add(m.getName());
-				}
-			}
-			current = current.getSuperclass();
-		}
-		return overrides;
-	}
-
-	private static Method findMethodOnClassHierarchy(Class<?> clazz, String godotMethodName) {
-		Map<String, Method> classCache = PER_CLASS_METHOD_CACHE.computeIfAbsent(clazz, c -> {
-			Map<String, Method> cache = new HashMap<>();
-			Class<?> current = c;
-			while (current != null) {
-				for (Method m : current.getDeclaredMethods()) {
-					if (m.getName().startsWith("_") && Modifier.isPublic(m.getModifiers())) {
-						m.setAccessible(true);
-						cache.putIfAbsent(m.getName(), m);
-					}
-				}
-				current = current.getSuperclass();
-			}
-			return cache;
-		});
-
-		String javaName = godotToJavaMethodName(godotMethodName);
-		Method m = classCache.get(javaName);
-		if (m != null) {
-			return m;
-		}
-		return classCache.get(godotMethodName);
-	}
-
-	private static String godotToJavaMethodName(String godotName) {
-		if (godotName.length() <= 1) {
-			return godotName;
-		}
-		String rest = godotName.substring(1);
-		StringBuilder sb = new StringBuilder("_");
-		boolean capitalizeNext = false;
-		for (int i = 0; i < rest.length(); i++) {
-			char c = rest.charAt(i);
-			if (c == '_' && i < rest.length() - 1) {
-				capitalizeNext = true;
-			} else {
-				sb.append(capitalizeNext ? Character.toUpperCase(c) : c);
-				capitalizeNext = false;
-			}
-		}
-		return sb.toString();
 	}
 
 	private static String javaToGodotMethodName(String javaName) {

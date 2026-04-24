@@ -12,7 +12,6 @@ import java.lang.foreign.MemorySegment;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
-import java.lang.reflect.Method;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import static java.lang.foreign.ValueLayout.*;
@@ -33,16 +32,14 @@ public final class MethodDispatch {
 	private MethodDispatch() {
 	}
 
-	// Registered methods: methodKey -> Method object
-	private static final Map<Long, Method> REGISTERED_METHODS = new ConcurrentHashMap<>();
 	private static final java.util.concurrent.atomic.AtomicLong nextMethodKey = new java.util.concurrent.atomic.AtomicLong(
 			1);
 
-	// APT-generated typed dispatch: godotClassName → TypedDispatch class
-	private static final Map<String, Class<?>> APT_DISPATCH_CACHE = new ConcurrentHashMap<>();
-
-	// methodKey → godotClassName (for looking up APT dispatch)
+	// methodKey → godotClassName (for Dispatch-based dispatch)
 	private static final Map<Long, String> METHOD_KEY_TO_CLASS = new ConcurrentHashMap<>();
+
+	// methodKey → godot method name (for Dispatch-based dispatch)
+	private static final Map<Long, String> METHOD_KEY_TO_NAME = new ConcurrentHashMap<>();
 
 	// Method flags
 	private static final int ERROR_OK = 0;
@@ -72,12 +69,15 @@ public final class MethodDispatch {
 		}
 	}
 
-	/** Register a Java method and return its unique key for userdata. */
-	static long registerMethod(Method method, String godotClassName) {
+	/**
+	 * Register a method by class name and Godot method name (no reflection). The
+	 * dispatch path will use Dispatch.dispatchPtrcall/dispatchVariantCall.
+	 */
+	static long registerMethod(String godotClassName, String godotMethodName) {
 		ensureInitialized();
 		long key = nextMethodKey.getAndIncrement();
-		REGISTERED_METHODS.put(key, method);
 		METHOD_KEY_TO_CLASS.put(key, godotClassName);
+		METHOD_KEY_TO_NAME.put(key, godotMethodName);
 		return key;
 	}
 
@@ -87,41 +87,12 @@ public final class MethodDispatch {
 		return callStub;
 	}
 
-	/**
-	 * Load APT-generated TypedDispatch_<ClassName> for typed method dispatch.
-	 * Returns null if no APT data is available.
-	 */
-	private static Class<?> loadAptDispatch(String godotClassName) {
-		return APT_DISPATCH_CACHE.computeIfAbsent(godotClassName, name -> {
-			try {
-				return Class.forName("org.godot.internal.TypedDispatch_" + name);
-			} catch (ClassNotFoundException e) {
-				return null;
-			}
-		});
-	}
-
-	/** Check if APT-generated dispatch is available for a class. */
-	static boolean hasAptDispatch(String godotClassName) {
-		return loadAptDispatch(godotClassName) != null;
-	}
-
-	/** Get the APT dispatch class for a given godot class name. */
-	static Class<?> getAptDispatch(String godotClassName) {
-		return loadAptDispatch(godotClassName);
-	}
-
 	/** Panama adapter called by Godot. */
 	static void callAdapter(MemorySegment userdataSeg, MemorySegment instanceSeg, MemorySegment argsSeg, long argCount,
 			MemorySegment retSeg, MemorySegment errorSeg) {
 		try {
 			// Get method from userdata key
 			long methodKey = userdataSeg.address();
-			Method method = REGISTERED_METHODS.get(methodKey);
-			if (method == null) {
-				setError(errorSeg, ERROR_INVALID_ARGUMENT);
-				return;
-			}
 
 			// Get Java instance from native instance pointer
 			long instanceAddr = instanceSeg.address();
@@ -132,32 +103,35 @@ public final class MethodDispatch {
 				return;
 			}
 
-			// Convert variant args to Java objects matching parameter types
-			int argc = (int) argCount;
-			Object[] javaArgs = new Object[argc];
-			Class<?>[] paramTypes = method.getParameterTypes();
-			for (int i = 0; i < argc; i++) {
-				MemorySegment argPtr = argsSeg.reinterpret(8L * argc).get(ADDRESS, (long) i * 8L);
-				if (!argPtr.equals(MemorySegment.NULL)) {
-					Object raw = VariantUtils.toObject(new Variant(argPtr.reinterpret(24)));
-					javaArgs[i] = coerceType(raw, paramTypes[i]);
+			// Try Dispatch-based path first (no reflection)
+			String dispatchClassName = METHOD_KEY_TO_CLASS.get(methodKey);
+			String dispatchMethodName = METHOD_KEY_TO_NAME.get(methodKey);
+			if (dispatchMethodName != null && dispatchClassName != null) {
+				int argc = (int) argCount;
+				Object[] javaArgs = new Object[argc];
+				for (int i = 0; i < argc; i++) {
+					MemorySegment argPtr = argsSeg.reinterpret(8L * argc).get(ADDRESS, (long) i * 8L);
+					if (!argPtr.equals(MemorySegment.NULL)) {
+						Object raw = VariantUtils.toObject(new Variant(argPtr.reinterpret(24)));
+						javaArgs[i] = raw;
+					}
 				}
+
+				Object result = org.godot.internal.dispatch.Dispatch.dispatchVariantCall(dispatchClassName,
+						dispatchMethodName, obj, javaArgs);
+
+				if (result != null) {
+					Variant retVar = VariantUtils.fromObject(result);
+					Bridge.callVoid(org.godot.internal.api.ApiIndex.VARIANT_NEW_COPY, retSeg, retVar.getSegment());
+				} else {
+					Bridge.callVoid(org.godot.internal.api.ApiIndex.VARIANT_NEW_NIL, retSeg);
+				}
+				setError(errorSeg, ERROR_OK);
+				return;
 			}
 
-			// Invoke the Java method
-			Object result = method.invoke(obj, javaArgs);
-
-			// Set return value if any
-			if (method.getReturnType() != void.class && result != null) {
-				Variant retVar = VariantUtils.fromObject(result);
-				// Copy result variant to retSeg
-				Bridge.callVoid(org.godot.internal.api.ApiIndex.VARIANT_NEW_COPY, retSeg, retVar.getSegment());
-			} else {
-				// Set NIL return
-				Bridge.callVoid(org.godot.internal.api.ApiIndex.VARIANT_NEW_NIL, retSeg);
-			}
-
-			setError(errorSeg, ERROR_OK);
+			logger.error("MethodDispatch callAdapter: no dispatch data for methodKey {}", methodKey);
+			setError(errorSeg, ERROR_INVALID_ARGUMENT);
 		} catch (Throwable t) {
 			logger.error("MethodDispatch error", t);
 			setError(errorSeg, ERROR_INVALID_ARGUMENT);
@@ -197,95 +171,27 @@ public final class MethodDispatch {
 			MemorySegment retSeg) {
 		try {
 			long methodKey = userdataSeg.address();
-			Method method = REGISTERED_METHODS.get(methodKey);
-			if (method == null)
-				return;
 
 			long instanceAddr = instanceSeg.address();
 			Godot obj = JavaObjectMap.get(instanceAddr);
 			if (obj == null)
 				return;
 
-			// Try APT-generated typed dispatch first
-			String className = METHOD_KEY_TO_CLASS.get(methodKey);
-			Class<?> aptDispatch = className != null ? loadAptDispatch(className) : null;
-			if (aptDispatch != null) {
-				String godotName = method.getName();
-				var hasMethod = aptDispatch.getMethod("hasMethod", String.class);
-				if ((boolean) hasMethod.invoke(null, godotName)) {
-					var dispatchMethod = aptDispatch.getMethod("dispatchMethod", String.class, Godot.class,
-							MemorySegment.class, int.class);
-					Object result = dispatchMethod.invoke(null, godotName, obj, argsSeg, method.getParameterCount());
-					if (method.getReturnType() != void.class && retSeg.address() != 0 && result != null) {
-						writeTypedPtr(retSeg, result, method.getReturnType());
-					}
-					return;
+			// Try Dispatch-based path first (no reflection)
+			String dispatchClassName = METHOD_KEY_TO_CLASS.get(methodKey);
+			String dispatchMethodName = METHOD_KEY_TO_NAME.get(methodKey);
+			if (dispatchMethodName != null && dispatchClassName != null) {
+				Object result = org.godot.internal.dispatch.Dispatch.dispatchPtrcall(dispatchClassName,
+						dispatchMethodName, obj, argsSeg, 0);
+				if (result != null && retSeg.address() != 0) {
+					writeTypedPtr(retSeg, result, result.getClass());
 				}
+				return;
 			}
 
-			// Fallback: reflection-based dispatch
-			int argc = method.getParameterCount();
-			Object[] javaArgs = new Object[argc];
-			Class<?>[] paramTypes = method.getParameterTypes();
-			if (argc > 0) {
-				MemorySegment sizedArgs = argsSeg.reinterpret((long) argc * ADDRESS.byteSize());
-				for (int i = 0; i < argc; i++) {
-					MemorySegment argPtr = sizedArgs.get(ADDRESS, (long) i * ADDRESS.byteSize());
-					javaArgs[i] = readTypedPtr(argPtr, paramTypes[i]);
-				}
-			}
-
-			Object result = method.invoke(obj, javaArgs);
-
-			if (method.getReturnType() != void.class && retSeg.address() != 0) {
-				writeTypedPtr(retSeg, result, method.getReturnType());
-			}
+			logger.error("MethodDispatch ptrcallAdapter: no dispatch data for methodKey {}", methodKey);
 		} catch (Throwable t) {
 			logger.error("MethodDispatch ptrcall error", t);
-		}
-	}
-
-	/** Read a value from a typed pointer (zero-copy). */
-	private static Object readTypedPtr(MemorySegment ptr, Class<?> type) {
-		if (ptr.address() == 0)
-			return null;
-		if (type == double.class || type == Double.class) {
-			return ptr.reinterpret(8).get(JAVA_DOUBLE, 0);
-		} else if (type == float.class || type == Float.class) {
-			return (float) ptr.reinterpret(4).get(JAVA_FLOAT, 0);
-		} else if (type == int.class || type == Integer.class) {
-			return ptr.reinterpret(4).get(JAVA_INT, 0);
-		} else if (type == long.class || type == Long.class) {
-			return ptr.reinterpret(8).get(JAVA_LONG, 0);
-		} else if (type == boolean.class || type == Boolean.class) {
-			return ptr.get(JAVA_BYTE, 0) != 0;
-		} else if (type == String.class) {
-			return new org.godot.core.GodotString(ptr).toJavaString();
-		} else if (Godot.class.isAssignableFrom(type)) {
-			// RefCounted types: ptrcall passes RefPtr*, use ref_get_object
-			MemorySegment objPtr = Bridge.callPtr(org.godot.internal.api.ApiIndex.REF_GET_OBJECT, ptr);
-			long addr = objPtr.address();
-			if (addr == 0) {
-				// Not a RefPtr, try direct dereference (non-RefCounted Object**)
-				addr = ptr.reinterpret(ADDRESS.byteSize()).get(ADDRESS, 0).address();
-			}
-			if (addr == 0)
-				return null;
-			Godot godotObj = JavaObjectMap.get(addr);
-			if (godotObj != null)
-				return godotObj;
-			Variant var = Variant.fromObjectPtr(addr);
-			return VariantUtils.toObject(var);
-		} else {
-			// Non-Godot object types: dereference pointer
-			long objPtr = ptr.reinterpret(ADDRESS.byteSize()).get(ADDRESS, 0).address();
-			if (objPtr == 0)
-				return null;
-			Godot godotObj = JavaObjectMap.get(objPtr);
-			if (godotObj != null)
-				return godotObj;
-			Variant var = Variant.fromObjectPtr(objPtr);
-			return VariantUtils.toObject(var);
 		}
 	}
 
@@ -324,32 +230,5 @@ public final class MethodDispatch {
 			errorSeg.reinterpret(24).set(JAVA_INT, 4, 0); // argument
 			errorSeg.reinterpret(24).set(JAVA_INT, 8, 0); // expected
 		}
-	}
-
-	/** Coerce a Variant-derived value to the expected Java parameter type. */
-	private static Object coerceType(Object value, Class<?> targetType) {
-		if (value == null)
-			return null;
-		if (targetType == int.class || targetType == Integer.class) {
-			if (value instanceof Number n)
-				return n.intValue();
-		}
-		if (targetType == long.class || targetType == Long.class) {
-			if (value instanceof Number n)
-				return n.longValue();
-		}
-		if (targetType == float.class || targetType == Float.class) {
-			if (value instanceof Number n)
-				return n.floatValue();
-		}
-		if (targetType == double.class || targetType == Double.class) {
-			if (value instanceof Number n)
-				return n.doubleValue();
-		}
-		if (targetType == boolean.class || targetType == Boolean.class) {
-			if (value instanceof Boolean b)
-				return b;
-		}
-		return value;
 	}
 }

@@ -342,7 +342,7 @@ public class JavaClassGenerator {
 
 	private static final Map<String, String> CROSS_PACKAGE_TYPES = Map.ofEntries(
 			// Root package
-			Map.entry("Godot", "org.godot"), Map.entry("GodotObject", "org.godot"),
+			Map.entry("Godot", "org.godot"),
 			// java.lang (needed to avoid shadowing when generating org.godot.node.Object)
 			Map.entry("java.lang.Object", "java.lang"),
 			// Math package

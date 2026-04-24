@@ -71,6 +71,14 @@ public abstract class Godot {
 		return nativeObject;
 	}
 
+	public final long getNativeObject() {
+		return nativeObject;
+	}
+
+	public final void setNativeObject(long ptr) {
+		this.nativeObject = ptr;
+	}
+
 	public boolean isValid() {
 		return valid && nativeObject != 0;
 	}

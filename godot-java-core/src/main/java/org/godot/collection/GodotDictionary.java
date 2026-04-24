@@ -1,6 +1,6 @@
 package org.godot.collection;
 
-import org.godot.core.RefCounted;
+import org.godot.node.RefCounted;
 import org.godot.core.Variant;
 import org.godot.core.VariantUtils;
 import org.godot.bridge.Bridge;
@@ -39,6 +39,13 @@ public class GodotDictionary extends RefCounted {
 	 *            Key (converted to Variant)
 	 * @return Value for key, or null if not found
 	 */
+	// Override Object.get(String) to avoid shadowing by the generated property
+	// getter
+	@Override
+	public Object get(String key) {
+		return get((Object) key);
+	}
+
 	public Object get(Object key) {
 		if (nativeObject == 0)
 			return null;

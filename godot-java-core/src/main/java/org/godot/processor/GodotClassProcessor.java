@@ -12,6 +12,7 @@ import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
+import javax.tools.Diagnostic;
 import javax.tools.JavaFileObject;
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -36,15 +37,13 @@ import java.util.Set;
  * <ol>
  * <li>{@code GeneratedClassRegistry} — list of all @GodotClass-annotated
  * classes (replaces runtime classpath scanning).</li>
- * <li>{@code VirtualDispatch_<Name>} for each @GodotClass — per-parent-class
- * virtual method hash data, aligned with gdext's compile-time approach.</li>
- * <li>{@code TypedDispatch_<ClassName>} for each @GodotClass — typed method
- * dispatch via MethodHandle replacing runtime reflection for @GodotMethod
- * and @Export members.</li>
+ * <li>{@code DispatchIndex} — consolidated dispatch index replacing all
+ * scattered VirtualDispatch_*, TypedDispatch_*, VirtualMethodDispatch_* files.
+ * Zero runtime reflection.</li>
  * </ol>
  */
 @javax.annotation.processing.SupportedAnnotationTypes({"org.godot.annotation.GodotClass",
-		"org.godot.annotation.GodotMethod", "org.godot.annotation.Export"})
+		"org.godot.annotation.GodotMethod", "org.godot.annotation.Export", "org.godot.annotation.Signal"})
 @javax.annotation.processing.SupportedSourceVersion(SourceVersion.RELEASE_25)
 public class GodotClassProcessor extends AbstractProcessor {
 
@@ -72,7 +71,6 @@ public class GodotClassProcessor extends AbstractProcessor {
 
 	@Override
 	public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
-		// Collect @GodotClass elements across rounds
 		for (TypeElement annotation : annotations) {
 			for (Element element : roundEnv.getElementsAnnotatedWith(annotation)) {
 				if (element instanceof TypeElement typeElement) {
@@ -90,14 +88,9 @@ public class GodotClassProcessor extends AbstractProcessor {
 			}
 		}
 
-		// Generate on the last round (when processing is complete)
 		if (roundEnv.processingOver()) {
 			generateRegistry();
-			if (indexLoaded) {
-				generateVirtualDispatchData();
-				generateVirtualMethodDispatchData();
-			}
-			generateTypedDispatchData();
+			generateDispatchIndex();
 			return true;
 		}
 
@@ -114,8 +107,8 @@ public class GodotClassProcessor extends AbstractProcessor {
 
 		try (InputStream is = getClass().getResourceAsStream(VIRTUAL_METHOD_INDEX)) {
 			if (is == null) {
-				processingEnv.getMessager().printMessage(javax.tools.Diagnostic.Kind.NOTE,
-						"virtual_method_index.txt not found on classpath. Per-class virtual dispatch data will not be generated.");
+				processingEnv.getMessager().printMessage(Diagnostic.Kind.NOTE,
+						"virtual_method_index.txt not found on classpath.");
 				return;
 			}
 
@@ -144,18 +137,14 @@ public class GodotClassProcessor extends AbstractProcessor {
 				}
 
 				indexLoaded = true;
-				processingEnv.getMessager().printMessage(javax.tools.Diagnostic.Kind.NOTE,
+				processingEnv.getMessager().printMessage(Diagnostic.Kind.NOTE,
 						"Loaded virtual method index: " + classInherits.size() + " classes");
 			}
 		} catch (IOException e) {
-			processingEnv.getMessager().printMessage(javax.tools.Diagnostic.Kind.WARNING,
+			processingEnv.getMessager().printMessage(Diagnostic.Kind.WARNING,
 					"Failed to load virtual_method_index.txt: " + e.getMessage());
 		}
 	}
-
-	// -----------------------------------------------------------------------
-	// Walk inheritance chain and collect virtual methods
-	// -----------------------------------------------------------------------
 
 	private Map<String, Long> collectVirtualMethodsForHierarchy(String parentClass) {
 		Map<String, Long> result = new LinkedHashMap<>();
@@ -172,127 +161,44 @@ public class GodotClassProcessor extends AbstractProcessor {
 	}
 
 	// -----------------------------------------------------------------------
-	// Generate VirtualDispatch_<Name>.java for each @GodotClass
+	// Data records
 	// -----------------------------------------------------------------------
 
-	private void generateVirtualDispatchData() {
-		Set<String> generatedParents = new HashSet<>();
-
-		for (ClassEntry entry : discoveredClasses) {
-			String parent = entry.parentClass;
-			if (!generatedParents.add(parent)) {
-				continue;
-			}
-
-			Map<String, Long> methodHashes = collectVirtualMethodsForHierarchy(parent);
-			if (methodHashes.isEmpty()) {
-				continue;
-			}
-
-			Map<Long, Set<String>> hashToNames = new LinkedHashMap<>();
-			for (Map.Entry<String, Long> e : methodHashes.entrySet()) {
-				hashToNames.computeIfAbsent(e.getValue(), k -> new LinkedHashSet<>()).add(e.getKey());
-			}
-
-			generateVirtualDispatchClass(parent, methodHashes, hashToNames);
-		}
+	private record ClassEntry(String fqn, String godotClassName, String parentClass) {
 	}
 
-	private void generateVirtualDispatchClass(String parentClass, Map<String, Long> methodHashes,
-			Map<Long, Set<String>> hashToNames) {
-		String className = "VirtualDispatch_" + parentClass;
-		String fqn = REGISTRY_PACKAGE + "." + className;
+	private record MethodInfo(String javaName, String godotName, String returnType, List<String> paramTypes,
+			List<String> paramNames) {
+	}
 
-		try {
-			JavaFileObject sourceFile = processingEnv.getFiler().createSourceFile(fqn);
-			try (Writer writer = sourceFile.openWriter()) {
-				writer.write("package " + REGISTRY_PACKAGE + ";\n\n");
-				writer.write("import java.util.*;\n\n");
-				writer.write("/**\n");
-				writer.write(" * Per-parent-class virtual method hash data for " + parentClass + ".\n");
-				writer.write(" * Generated by godot-java-processor from extension_api.json.\n");
-				writer.write(" * DO NOT EDIT.\n");
-				writer.write(" */\n");
-				writer.write("final class " + className + " {\n\n");
-				writer.write("    private " + className + "() {}\n\n");
+	private record FieldInfo(String javaName, String propertyName, String type, int hintId, String hintString) {
+	}
 
-				writer.write("    static final Map<Long, Set<String>> HASH_TO_NAMES;\n");
-				writer.write("    static {\n");
-				writer.write("        Map<Long, Set<String>> m = new HashMap<>();\n");
-				for (Map.Entry<Long, Set<String>> entry : hashToNames.entrySet()) {
-					Set<String> names = entry.getValue();
-					if (names.size() == 1) {
-						writer.write("        m.put(" + entry.getKey() + "L, Set.of(\"" + names.iterator().next()
-								+ "\"));\n");
-					} else {
-						writer.write("        m.put(" + entry.getKey() + "L, Set.of(");
-						boolean first = true;
-						for (String name : names) {
-							if (!first)
-								writer.write(", ");
-							writer.write("\"" + name + "\"");
-							first = false;
-						}
-						writer.write("));\n");
-					}
-				}
-				writer.write("        HASH_TO_NAMES = Collections.unmodifiableMap(m);\n");
-				writer.write("    }\n\n");
+	private record SignalInfo(String javaName, String signalName, List<String> paramTypes, List<String> paramNames) {
+	}
 
-				writer.write("    static final Set<String> ALL_VIRTUAL_NAMES;\n");
-				writer.write("    static {\n");
-				writer.write("        Set<String> s = new HashSet<>();\n");
-				for (String name : methodHashes.keySet()) {
-					writer.write("        s.add(\"" + name + "\");\n");
-				}
-				writer.write("        ALL_VIRTUAL_NAMES = Collections.unmodifiableSet(s);\n");
-				writer.write("    }\n");
+	private record VirtualOverrideInfo(String javaName, String godotName, String returnType,
+			List<ParamTypeInfo> params) {
+	}
 
-				writer.write("}\n");
-			}
-
-			processingEnv.getMessager().printMessage(javax.tools.Diagnostic.Kind.NOTE,
-					"Generated " + fqn + " for parent " + parentClass + " (" + methodHashes.size()
-							+ " virtual methods, " + hashToNames.size() + " unique hashes)");
-		} catch (IOException e) {
-			processingEnv.getMessager().printMessage(javax.tools.Diagnostic.Kind.ERROR,
-					"Failed to generate " + fqn + ": " + e.getMessage());
-		}
+	private record ParamTypeInfo(String fqn, String category) {
 	}
 
 	// -----------------------------------------------------------------------
-	// Generate TypedDispatch_<ClassName>.java — typed method + property dispatch
+	// Member collection
 	// -----------------------------------------------------------------------
 
-	private void generateTypedDispatchData() {
-		for (ClassEntry entry : discoveredClasses) {
-			TypeElement typeElement = processingEnv.getElementUtils().getTypeElement(entry.fqn());
-			if (typeElement == null) {
-				continue;
-			}
-
-			// Collect @GodotMethod methods and @Export fields
-			List<MethodInfo> methods = new ArrayList<>();
-			List<FieldInfo> fields = new ArrayList<>();
-
-			collectMembers(typeElement, methods, fields);
-
-			if (methods.isEmpty() && fields.isEmpty()) {
-				continue;
-			}
-
-			generateTypedDispatchClass(entry, methods, fields);
-		}
-	}
-
-	private void collectMembers(TypeElement typeElement, List<MethodInfo> methods, List<FieldInfo> fields) {
+	private void collectMembers(TypeElement typeElement, List<MethodInfo> methods, List<FieldInfo> fields,
+			List<SignalInfo> signals) {
 		for (Element member : typeElement.getEnclosedElements()) {
 			if (member.getKind() == ElementKind.METHOD) {
 				ExecutableElement method = (ExecutableElement) member;
-				if (method.getAnnotation(org.godot.annotation.GodotMethod.class) != null) {
-					org.godot.annotation.GodotMethod ann = method.getAnnotation(org.godot.annotation.GodotMethod.class);
-					String godotName = (ann != null && !ann.value().isEmpty())
-							? ann.value()
+
+				// Collect @Signal regardless of visibility
+				if (method.getAnnotation(org.godot.annotation.Signal.class) != null) {
+					org.godot.annotation.Signal signalAnn = method.getAnnotation(org.godot.annotation.Signal.class);
+					String signalName = (signalAnn != null && !signalAnn.name().isEmpty())
+							? signalAnn.name()
 							: method.getSimpleName().toString();
 					List<String> paramTypes = new ArrayList<>();
 					List<String> paramNames = new ArrayList<>();
@@ -300,10 +206,41 @@ public class GodotClassProcessor extends AbstractProcessor {
 						paramTypes.add(typeToDescriptor(param.asType()));
 						paramNames.add(param.getSimpleName().toString());
 					}
-					String returnType = typeToDescriptor(method.getReturnType());
-					methods.add(new MethodInfo(method.getSimpleName().toString(), godotName, returnType, paramTypes,
-							paramNames));
+					signals.add(new SignalInfo(method.getSimpleName().toString(), signalName, paramTypes, paramNames));
 				}
+
+				// @Signal methods are registered as signals, not callable methods
+				if (method.getAnnotation(org.godot.annotation.Signal.class) != null) {
+					continue;
+				}
+				// Only collect public, non-static methods (skip Object/Godot overrides)
+				Set<javax.lang.model.element.Modifier> mods = method.getModifiers();
+				if (!mods.contains(javax.lang.model.element.Modifier.PUBLIC)
+						|| mods.contains(javax.lang.model.element.Modifier.STATIC)) {
+					continue;
+				}
+				String methodName = method.getSimpleName().toString();
+				if (methodName.equals("toString") || methodName.equals("hashCode") || methodName.equals("equals")
+						|| methodName.equals("getClass") || methodName.equals("notify")
+						|| methodName.equals("notifyAll") || methodName.equals("wait")) {
+					continue;
+				}
+
+				// @GodotMethod can override the Godot method name
+				String godotName = methodName;
+				org.godot.annotation.GodotMethod gmAnn = method.getAnnotation(org.godot.annotation.GodotMethod.class);
+				if (gmAnn != null && !gmAnn.value().isEmpty()) {
+					godotName = gmAnn.value();
+				}
+
+				List<String> paramTypes = new ArrayList<>();
+				List<String> paramNames = new ArrayList<>();
+				for (VariableElement param : method.getParameters()) {
+					paramTypes.add(typeToDescriptor(param.asType()));
+					paramNames.add(param.getSimpleName().toString());
+				}
+				String returnType = typeToDescriptor(method.getReturnType());
+				methods.add(new MethodInfo(methodName, godotName, returnType, paramTypes, paramNames));
 			} else if (member.getKind() == ElementKind.FIELD) {
 				VariableElement field = (VariableElement) member;
 				if (field.getAnnotation(org.godot.annotation.Export.class) != null) {
@@ -311,8 +248,10 @@ public class GodotClassProcessor extends AbstractProcessor {
 					String propName = (ann != null && !ann.propertyName().isEmpty())
 							? ann.propertyName()
 							: field.getSimpleName().toString();
+					int hintId = ann != null ? ann.hint().id() : 0;
+					String hintString = ann != null ? ann.hintString() : "";
 					fields.add(new FieldInfo(field.getSimpleName().toString(), propName,
-							typeToDescriptor(field.asType())));
+							typeToDescriptor(field.asType()), hintId, hintString));
 				}
 			}
 		}
@@ -334,196 +273,50 @@ public class GodotClassProcessor extends AbstractProcessor {
 		};
 	}
 
-	private void generateTypedDispatchClass(ClassEntry entry, List<MethodInfo> methods, List<FieldInfo> fields) {
-		String className = "TypedDispatch_" + entry.godotClassName();
-		String fqn = REGISTRY_PACKAGE + "." + className;
-		String ownerClass = entry.fqn();
-
-		try {
-			JavaFileObject sourceFile = processingEnv.getFiler().createSourceFile(fqn);
-			try (Writer w = sourceFile.openWriter()) {
-				w.write("package " + REGISTRY_PACKAGE + ";\n\n");
-				w.write("import java.lang.invoke.MethodHandle;\n");
-				w.write("import java.lang.invoke.MethodHandles;\n");
-				w.write("import java.lang.invoke.MethodType;\n");
-				w.write("import java.lang.invoke.VarHandle;\n");
-				w.write("import java.lang.foreign.MemorySegment;\n");
-				w.write("import org.godot.Godot;\n");
-				w.write("import org.godot.core.GodotString;\n");
-				w.write("import org.godot.core.Variant;\n");
-				w.write("import org.godot.core.VariantUtils;\n");
-				w.write("import org.godot.internal.ref.JavaObjectMap;\n");
-				w.write("import static java.lang.foreign.ValueLayout.*;\n\n");
-				w.write("/**\n");
-				w.write(" * Typed dispatch for " + entry.godotClassName() + ".\n");
-				w.write(" * Generated by godot-java-processor — DO NOT EDIT.\n");
-				w.write(" */\n");
-				w.write("final class " + className + " {\n\n");
-				w.write("    private " + className + "() {}\n\n");
-
-				// MethodHandle fields
-				for (MethodInfo m : methods) {
-					w.write("    private static final MethodHandle MH_" + m.javaName() + ";\n");
+	private ParamTypeInfo categorizeParam(TypeMirror type) {
+		TypeKind kind = type.getKind();
+		return switch (kind) {
+			case DOUBLE -> new ParamTypeInfo("double", "DOUBLE");
+			case FLOAT -> new ParamTypeInfo("float", "FLOAT");
+			case INT -> new ParamTypeInfo("int", "INT");
+			case LONG -> new ParamTypeInfo("long", "LONG");
+			case BOOLEAN -> new ParamTypeInfo("boolean", "BOOLEAN");
+			default -> {
+				String fqn = type.toString();
+				if ("java.lang.String".equals(fqn)) {
+					yield new ParamTypeInfo(fqn, "STRING");
+				} else if (isGodotSubclass(type)) {
+					yield new ParamTypeInfo(fqn, "GODOT_OBJECT");
+				} else {
+					yield new ParamTypeInfo(fqn, "UNKNOWN");
 				}
-				w.write("\n");
-
-				// VarHandle fields
-				for (FieldInfo f : fields) {
-					w.write("    private static final VarHandle VH_" + f.javaName() + ";\n");
-				}
-				w.write("\n");
-
-				// Static initializer
-				w.write("    static {\n");
-				w.write("        try {\n");
-				w.write("            MethodHandles.Lookup lookup = MethodHandles.lookup();\n");
-				w.write("            Class<?> cls = Class.forName(\"" + ownerClass + "\");\n");
-				for (MethodInfo m : methods) {
-					StringBuilder mt = new StringBuilder("            MH_" + m.javaName() + " = lookup.findVirtual(");
-					mt.append("cls, \"" + m.javaName() + "\", MethodType.methodType(");
-					mt.append(javaTypeForLookup(m.returnType()));
-					for (String pt : m.paramTypes()) {
-						mt.append(", ").append(javaTypeForLookup(pt));
-					}
-					mt.append("));\n");
-					w.write(mt.toString());
-				}
-				w.write("\n");
-				for (FieldInfo f : fields) {
-					w.write("            VH_" + f.javaName() + " = lookup.findVarHandle(cls, \"" + f.javaName() + "\", "
-							+ varHandleType(f.type()) + ");\n");
-				}
-				w.write("        } catch (Exception e) {\n");
-				w.write("            throw new ExceptionInInitializerError(e);\n");
-				w.write("        }\n");
-				w.write("    }\n\n");
-
-				// dispatchMethod
-				w.write("    static Object dispatchMethod(String godotMethodName, Godot instance,\n");
-				w.write("            MemorySegment argsPtr, int argc) throws Throwable {\n");
-				w.write("        if (godotMethodName == null) return null;\n");
-				for (MethodInfo m : methods) {
-					w.write("        if (\"" + m.godotName() + "\".equals(godotMethodName)) {\n");
-					if (m.paramTypes().isEmpty()) {
-						if (m.returnType().equals("void")) {
-							w.write("            MH_" + m.javaName() + ".invokeExact(instance);\n");
-							w.write("            return null;\n");
-						} else {
-							w.write("            return MH_" + m.javaName() + ".invokeExact(instance);\n");
-						}
-					} else {
-						for (int i = 0; i < m.paramTypes().size(); i++) {
-							String pt = m.paramTypes().get(i);
-							w.write("            " + boxedType(pt) + " arg" + i + " = (" + boxedType(pt)
-									+ ") readArg(argsPtr, " + i + ", argc, " + pt + ".class);\n");
-						}
-						if (m.returnType().equals("void")) {
-							w.write("            MH_" + m.javaName() + ".invokeExact(instance");
-							for (int j = 0; j < m.paramTypes().size(); j++) {
-								w.write(", arg" + j);
-							}
-							w.write(");\n");
-							w.write("            return null;\n");
-						} else {
-							w.write("            return MH_" + m.javaName() + ".invokeExact(instance");
-							for (int j = 0; j < m.paramTypes().size(); j++) {
-								w.write(", arg" + j);
-							}
-							w.write(");\n");
-						}
-					}
-					w.write("        }\n");
-				}
-				w.write("        return null;\n");
-				w.write("    }\n\n");
-
-				// getProperty
-				w.write("    static Object getProperty(String propName, Godot instance) {\n");
-				w.write("        if (propName == null) return null;\n");
-				for (FieldInfo f : fields) {
-					w.write("        if (\"" + f.propertyName() + "\".equals(propName)) return VH_" + f.javaName()
-							+ ".get(instance);\n");
-				}
-				w.write("        return null;\n");
-				w.write("    }\n\n");
-
-				// setProperty
-				w.write("    static boolean setProperty(String propName, Godot instance, Object value) {\n");
-				w.write("        if (propName == null) return false;\n");
-				for (FieldInfo f : fields) {
-					w.write("        if (\"" + f.propertyName() + "\".equals(propName)) { VH_" + f.javaName()
-							+ ".set(instance, (" + boxedType(f.type()) + ") value); return true; }\n");
-				}
-				w.write("        return false;\n");
-				w.write("    }\n\n");
-
-				// readArg helper
-				w.write("    private static Object readArg(MemorySegment argsPtr, int index, int argc, Class<?> type) {\n");
-				w.write("        if (index >= argc) return null;\n");
-				w.write("        MemorySegment ptr = argsPtr.reinterpret((long) argc * ADDRESS.byteSize()).get(ADDRESS, (long) index * ADDRESS.byteSize());\n");
-				w.write("        if (ptr.address() == 0) return null;\n");
-				w.write("        if (type == double.class) return ptr.reinterpret(8).get(JAVA_DOUBLE, 0);\n");
-				w.write("        if (type == float.class) return (float) ptr.reinterpret(4).get(JAVA_FLOAT, 0);\n");
-				w.write("        if (type == int.class) return ptr.reinterpret(4).get(JAVA_INT, 0);\n");
-				w.write("        if (type == long.class) return ptr.reinterpret(8).get(JAVA_LONG, 0);\n");
-				w.write("        if (type == boolean.class) return ptr.get(JAVA_BYTE, 0) != 0;\n");
-				w.write("        if (type == String.class) return new GodotString(ptr).toJavaString();\n");
-				w.write("        long objPtr = ptr.reinterpret(ADDRESS.byteSize()).get(ADDRESS, 0).address();\n");
-				w.write("        if (objPtr == 0) return null;\n");
-				w.write("        Godot obj = JavaObjectMap.get(objPtr);\n");
-				w.write("        if (obj != null) return obj;\n");
-				w.write("        return VariantUtils.toObject(Variant.fromObjectPtr(objPtr));\n");
-				w.write("    }\n\n");
-
-				// hasMethod / hasProperty
-				w.write("    static boolean hasMethod(String godotMethodName) {\n");
-				w.write("        return "
-						+ buildEqualsChain(methods.stream().map(MethodInfo::godotName).toList(), "godotMethodName")
-						+ ";\n");
-				w.write("    }\n\n");
-				w.write("    static boolean hasProperty(String propName) {\n");
-				w.write("        return "
-						+ buildEqualsChain(fields.stream().map(FieldInfo::propertyName).toList(), "propName") + ";\n");
-				w.write("    }\n");
-
-				w.write("}\n");
 			}
-
-			processingEnv.getMessager().printMessage(javax.tools.Diagnostic.Kind.NOTE,
-					"Generated " + fqn + " (" + methods.size() + " methods, " + fields.size() + " properties)");
-		} catch (IOException e) {
-			processingEnv.getMessager().printMessage(javax.tools.Diagnostic.Kind.ERROR,
-					"Failed to generate " + fqn + ": " + e.getMessage());
-		}
+		};
 	}
 
-	private String buildEqualsChain(List<String> names, String param) {
-		if (names.isEmpty())
-			return "false";
+	private boolean isGodotSubclass(TypeMirror type) {
+		TypeElement godotElement = processingEnv.getElementUtils().getTypeElement("org.godot.Godot");
+		if (godotElement == null)
+			return false;
+		return processingEnv.getTypeUtils().isSubtype(type, godotElement.asType());
+	}
+
+	private String javaToGodotMethodName(String javaName) {
+		if (javaName.length() <= 1)
+			return javaName;
 		StringBuilder sb = new StringBuilder();
-		for (int i = 0; i < names.size(); i++) {
-			if (i > 0)
-				sb.append("\n            || ");
-			sb.append("\"" + names.get(i) + "\".equals(" + param + ")");
+		for (int i = 0; i < javaName.length(); i++) {
+			char c = javaName.charAt(i);
+			if (Character.isUpperCase(c)) {
+				sb.append('_').append(Character.toLowerCase(c));
+			} else {
+				sb.append(c);
+			}
 		}
 		return sb.toString();
 	}
 
-	private String javaTypeForLookup(String descriptor) {
-		return switch (descriptor) {
-			case "boolean" -> "boolean.class";
-			case "byte" -> "byte.class";
-			case "short" -> "short.class";
-			case "int" -> "int.class";
-			case "long" -> "long.class";
-			case "float" -> "float.class";
-			case "double" -> "double.class";
-			case "void" -> "void.class";
-			default -> descriptor + ".class";
-		};
-	}
-
-	private String varHandleType(String descriptor) {
+	private String javaTypeForVarHandle(String descriptor) {
 		return switch (descriptor) {
 			case "boolean" -> "boolean.class";
 			case "int" -> "int.class";
@@ -531,24 +324,11 @@ public class GodotClassProcessor extends AbstractProcessor {
 			case "float" -> "float.class";
 			case "double" -> "double.class";
 			default -> descriptor + ".class";
-		};
-	}
-
-	private String boxedType(String descriptor) {
-		return switch (descriptor) {
-			case "boolean" -> "Boolean";
-			case "byte" -> "Byte";
-			case "short" -> "Short";
-			case "int" -> "Integer";
-			case "long" -> "Long";
-			case "float" -> "Float";
-			case "double" -> "Double";
-			default -> "Object";
 		};
 	}
 
 	// -----------------------------------------------------------------------
-	// GeneratedClassRegistry
+	// Generate GeneratedClassRegistry.java
 	// -----------------------------------------------------------------------
 
 	private void generateRegistry() {
@@ -558,11 +338,6 @@ public class GodotClassProcessor extends AbstractProcessor {
 				writer.write("package " + REGISTRY_PACKAGE + ";\n\n");
 				writer.write("import java.util.List;\n");
 				writer.write("import java.util.ArrayList;\n\n");
-				writer.write("/**\n");
-				writer.write(" * Auto-generated by godot-java-processor.\n");
-				writer.write(" * Contains all @GodotClass annotated classes found at compile time.\n");
-				writer.write(" * DO NOT EDIT - regenerated on each compilation.\n");
-				writer.write(" */\n");
 				writer.write("public final class " + REGISTRY_CLASS + " {\n\n");
 				writer.write("    private " + REGISTRY_CLASS + "() {}\n\n");
 
@@ -611,282 +386,769 @@ public class GodotClassProcessor extends AbstractProcessor {
 				writer.write("}\n");
 			}
 
-			processingEnv.getMessager().printMessage(javax.tools.Diagnostic.Kind.NOTE,
+			processingEnv.getMessager().printMessage(Diagnostic.Kind.NOTE,
 					"Generated " + REGISTRY_FQN + " with " + discoveredClasses.size() + " registered classes");
 		} catch (IOException e) {
-			processingEnv.getMessager().printMessage(javax.tools.Diagnostic.Kind.ERROR,
+			processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR,
 					"Failed to generate " + REGISTRY_FQN + ": " + e.getMessage());
 		}
 	}
 
 	// -----------------------------------------------------------------------
-	// Data classes
+	// Generate DispatchIndex.java — consolidated zero-reflection dispatch
 	// -----------------------------------------------------------------------
 
-	private record ClassEntry(String fqn, String godotClassName, String parentClass) {
-	}
+	private void generateDispatchIndex() {
+		// Pre-compute per-class data
+		Map<String, List<MethodInfo>> classMethods = new LinkedHashMap<>();
+		Map<String, List<FieldInfo>> classFields = new LinkedHashMap<>();
+		Map<String, List<SignalInfo>> classSignals = new LinkedHashMap<>();
+		Map<String, List<VirtualOverrideInfo>> classVirtualOverrides = new LinkedHashMap<>();
+		Map<String, Map<Long, Set<String>>> virtualHashData = new LinkedHashMap<>();
+		Map<String, Set<String>> virtualAllNames = new LinkedHashMap<>();
 
-	private record MethodInfo(String javaName, String godotName, String returnType, List<String> paramTypes,
-			List<String> paramNames) {
-	}
-
-	private record FieldInfo(String javaName, String propertyName, String type) {
-	}
-
-	// -----------------------------------------------------------------------
-	// Virtual method dispatch code generation
-	// -----------------------------------------------------------------------
-
-	private record VirtualOverrideInfo(String javaName, String godotName, String returnType,
-			List<ParamTypeInfo> params) {
-	}
-
-	private record ParamTypeInfo(String fqn, String category) {
-		// category: DOUBLE, FLOAT, INT, LONG, BOOLEAN, STRING, GODOT_OBJECT, UNKNOWN
-	}
-
-	private void generateVirtualMethodDispatchData() {
 		for (ClassEntry entry : discoveredClasses) {
 			TypeElement typeElement = processingEnv.getElementUtils().getTypeElement(entry.fqn());
 			if (typeElement == null)
 				continue;
 
-			String parentClass = entry.parentClass();
-			Map<String, Long> virtualMethods = collectVirtualMethodsForHierarchy(parentClass);
-			if (virtualMethods.isEmpty())
-				continue;
-			Set<String> allVirtualNames = virtualMethods.keySet();
+			List<MethodInfo> methods = new ArrayList<>();
+			List<FieldInfo> fields = new ArrayList<>();
+			List<SignalInfo> signals = new ArrayList<>();
+			collectMembers(typeElement, methods, fields, signals);
 
-			List<VirtualOverrideInfo> overrides = new ArrayList<>();
-			for (Element member : typeElement.getEnclosedElements()) {
-				if (member.getKind() != ElementKind.METHOD)
-					continue;
-				ExecutableElement method = (ExecutableElement) member;
+			String gcn = entry.godotClassName();
+			if (!methods.isEmpty())
+				classMethods.put(gcn, methods);
+			if (!fields.isEmpty())
+				classFields.put(gcn, fields);
+			if (!signals.isEmpty())
+				classSignals.put(gcn, signals);
 
-				String javaName = method.getSimpleName().toString();
-				if (!javaName.startsWith("_") || !method.getModifiers().contains(Modifier.PUBLIC))
-					continue;
+			// Virtual overrides
+			if (indexLoaded) {
+				String parentClass = entry.parentClass();
+				Map<String, Long> virtualMethods = collectVirtualMethodsForHierarchy(parentClass);
+				if (!virtualMethods.isEmpty()) {
+					// Compute hash data for this parent (once per parent)
+					if (!virtualHashData.containsKey(parentClass)) {
+						Map<Long, Set<String>> htn = new LinkedHashMap<>();
+						for (Map.Entry<String, Long> e : virtualMethods.entrySet()) {
+							htn.computeIfAbsent(e.getValue(), k -> new LinkedHashSet<>()).add(e.getKey());
+						}
+						virtualHashData.put(parentClass, htn);
+						virtualAllNames.put(parentClass, new LinkedHashSet<>(virtualMethods.keySet()));
+					}
 
-				String godotName = javaToGodotMethodName(javaName);
-				boolean isVirtual = allVirtualNames.contains(godotName) || allVirtualNames.contains(javaName);
-				if (!isVirtual)
-					continue;
+					Set<String> allVirtualNames = virtualMethods.keySet();
+					List<VirtualOverrideInfo> overrides = new ArrayList<>();
+					for (Element member : typeElement.getEnclosedElements()) {
+						if (member.getKind() != ElementKind.METHOD)
+							continue;
+						ExecutableElement method = (ExecutableElement) member;
+						String javaName = method.getSimpleName().toString();
+						if (!javaName.startsWith("_") || !method.getModifiers().contains(Modifier.PUBLIC))
+							continue;
 
-				String matchedGodotName = allVirtualNames.contains(godotName) ? godotName : javaName;
+						String godotName = javaToGodotMethodName(javaName);
+						boolean isVirtual = allVirtualNames.contains(godotName) || allVirtualNames.contains(javaName);
+						if (!isVirtual)
+							continue;
 
-				List<ParamTypeInfo> params = new ArrayList<>();
-				for (VariableElement param : method.getParameters()) {
-					params.add(categorizeParam(param.asType()));
+						String matchedName = allVirtualNames.contains(godotName) ? godotName : javaName;
+						List<ParamTypeInfo> params = new ArrayList<>();
+						for (VariableElement param : method.getParameters()) {
+							params.add(categorizeParam(param.asType()));
+						}
+						String returnType = typeToDescriptor(method.getReturnType());
+						overrides.add(new VirtualOverrideInfo(javaName, matchedName, returnType, params));
+					}
+					if (!overrides.isEmpty()) {
+						classVirtualOverrides.put(gcn, overrides);
+					}
 				}
-
-				String returnType = typeToDescriptor(method.getReturnType());
-				overrides.add(new VirtualOverrideInfo(javaName, matchedGodotName, returnType, params));
-			}
-
-			if (overrides.isEmpty())
-				continue;
-
-			generateVirtualMethodDispatchClass(entry, overrides);
-		}
-	}
-
-	private ParamTypeInfo categorizeParam(TypeMirror type) {
-		TypeKind kind = type.getKind();
-		return switch (kind) {
-			case DOUBLE -> new ParamTypeInfo("double", "DOUBLE");
-			case FLOAT -> new ParamTypeInfo("float", "FLOAT");
-			case INT -> new ParamTypeInfo("int", "INT");
-			case LONG -> new ParamTypeInfo("long", "LONG");
-			case BOOLEAN -> new ParamTypeInfo("boolean", "BOOLEAN");
-			default -> {
-				String fqn = type.toString();
-				if ("java.lang.String".equals(fqn)) {
-					yield new ParamTypeInfo(fqn, "STRING");
-				} else if (isGodotSubclass(type)) {
-					yield new ParamTypeInfo(fqn, "GODOT_OBJECT");
-				} else {
-					yield new ParamTypeInfo(fqn, "UNKNOWN");
-				}
-			}
-		};
-	}
-
-	private boolean isGodotSubclass(TypeMirror type) {
-		TypeElement godotElement = processingEnv.getElementUtils().getTypeElement("org.godot.Godot");
-		if (godotElement == null)
-			return false;
-		return processingEnv.getTypeUtils().isSubtype(type, godotElement.asType());
-	}
-
-	private String javaToGodotMethodName(String javaName) {
-		if (javaName.length() <= 1)
-			return javaName;
-		StringBuilder sb = new StringBuilder();
-		for (int i = 0; i < javaName.length(); i++) {
-			char c = javaName.charAt(i);
-			if (Character.isUpperCase(c)) {
-				sb.append('_').append(Character.toLowerCase(c));
-			} else {
-				sb.append(c);
 			}
 		}
-		return sb.toString();
-	}
 
-	private void generateVirtualMethodDispatchClass(ClassEntry entry, List<VirtualOverrideInfo> overrides) {
-		String className = "VirtualMethodDispatch_" + entry.godotClassName();
-		String fqn = REGISTRY_PACKAGE + "." + className;
-		String ownerFQN = entry.fqn();
-
+		String fqn = REGISTRY_PACKAGE + ".DispatchIndex";
 		try {
 			JavaFileObject sourceFile = processingEnv.getFiler().createSourceFile(fqn);
 			try (Writer w = sourceFile.openWriter()) {
-				w.write("package " + REGISTRY_PACKAGE + ";\n\n");
-				w.write("import java.lang.foreign.MemorySegment;\n");
-				w.write("import org.godot.Godot;\n");
-				w.write("import org.godot.internal.ref.JavaObjectMap;\n");
-				w.write("import org.godot.core.GodotString;\n");
-				w.write("import org.godot.core.Variant;\n");
-				w.write("import org.godot.core.VariantUtils;\n");
-				w.write("import org.godot.internal.api.ApiIndex;\n");
-				w.write("import org.godot.bridge.Bridge;\n");
-				w.write("import org.godot.bridge.VirtualDispatch;\n");
-				w.write("import static java.lang.foreign.ValueLayout.*;\n\n");
-				w.write("/**\n");
-				w.write(" * Per-class virtual method dispatch (type-safe, zero-reflection).\n");
-				w.write(" * Generated by godot-java-processor — DO NOT EDIT.\n");
-				w.write(" */\n");
-				w.write("final class " + className + " {\n\n");
-				w.write("    private " + className + "() {}\n\n");
-
-				for (VirtualOverrideInfo method : overrides) {
-					generateDispatchMethod(w, ownerFQN, method);
-				}
-
-				w.write("}\n");
+				writeDispatchIndex(w, classMethods, classFields, classSignals, classVirtualOverrides, virtualHashData,
+						virtualAllNames);
 			}
 
-			processingEnv.getMessager().printMessage(javax.tools.Diagnostic.Kind.NOTE,
-					"Generated " + fqn + " (" + overrides.size() + " virtual dispatch methods)");
+			processingEnv.getMessager().printMessage(Diagnostic.Kind.NOTE,
+					"Generated " + fqn + " for " + discoveredClasses.size() + " classes");
 		} catch (IOException e) {
-			processingEnv.getMessager().printMessage(javax.tools.Diagnostic.Kind.ERROR,
-					"Failed to generate " + fqn + ": " + e.getMessage());
+			processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR,
+					"Failed to generate DispatchIndex: " + e.getMessage());
 		}
 	}
 
-	private void generateDispatchMethod(Writer w, String ownerFQN, VirtualOverrideInfo method) throws IOException {
-		String dispatchName = "dispatch_" + method.javaName().substring(1);
-		List<ParamTypeInfo> params = method.params();
+	private void writeDispatchIndex(Writer w, Map<String, List<MethodInfo>> classMethods,
+			Map<String, List<FieldInfo>> classFields, Map<String, List<SignalInfo>> classSignals,
+			Map<String, List<VirtualOverrideInfo>> classVirtualOverrides,
+			Map<String, Map<Long, Set<String>>> virtualHashData, Map<String, Set<String>> virtualAllNames)
+			throws IOException {
 
-		w.write("    static void " + dispatchName
-				+ "(MemorySegment instance, MemorySegment args, long argCount, MemorySegment ret) {\n");
+		// --- Package + imports ---
+		w.write("package " + REGISTRY_PACKAGE + ";\n\n");
+		w.write("import java.lang.invoke.MethodHandles;\n");
+		w.write("import java.lang.invoke.MethodType;\n");
+		w.write("import java.lang.invoke.VarHandle;\n");
+		w.write("import java.lang.foreign.MemorySegment;\n");
+		w.write("import java.util.Collections;\n");
+		w.write("import java.util.HashMap;\n");
+		w.write("import java.util.HashSet;\n");
+		w.write("import java.util.Map;\n");
+		w.write("import java.util.Set;\n");
+		w.write("import java.util.function.LongFunction;\n");
+		w.write("import org.godot.Godot;\n");
+		w.write("import org.godot.core.GodotString;\n");
+		w.write("import org.godot.core.Variant;\n");
+		w.write("import org.godot.core.VariantUtils;\n");
+		w.write("import org.godot.internal.dispatch.PropertyMeta;\n");
+		w.write("import org.godot.internal.dispatch.MethodMeta;\n");
+		w.write("import org.godot.internal.dispatch.SignalMeta;\n");
+		w.write("import org.godot.internal.dispatch.DispatchAccessor;\n");
+		w.write("import org.godot.internal.ref.JavaObjectMap;\n");
+		w.write("import org.godot.bridge.Bridge;\n");
+		w.write("import org.godot.internal.api.ApiIndex;\n");
+		w.write("import static java.lang.foreign.ValueLayout.*;\n\n");
 
-		// Re-entrant upcall guard: discard upcalls that arrive during a downcall
-		w.write("        if (Bridge.isInDowncall()) {\n");
-		w.write("            if (ret.address() != 0) ret.set(JAVA_INT, 0, 0);\n");
-		w.write("            return;\n");
-		w.write("        }\n");
+		// Import user classes
+		for (ClassEntry entry : discoveredClasses) {
+			w.write("import " + entry.fqn() + ";\n");
+		}
+		w.write("\n");
 
-		// Get Java object
-		w.write("        long instanceAddr = instance.address();\n");
-		w.write("        Godot obj = JavaObjectMap.get(instanceAddr);\n");
-		w.write("        if (obj == null) return;\n");
-		w.write("        " + ownerFQN + " self = (" + ownerFQN + ") obj;\n");
+		w.write("/**\n");
+		w.write(" * Consolidated dispatch index — zero runtime reflection.\n");
+		w.write(" * Generated by godot-java-processor — DO NOT EDIT.\n");
+		w.write(" */\n");
+		w.write("public final class DispatchIndex implements DispatchAccessor {\n\n");
+		w.write("    public static final DispatchAccessor INSTANCE = new DispatchIndex();\n");
+		w.write("    private DispatchIndex() {}\n\n");
 
-		// Read parameters from native args array
-		if (!params.isEmpty()) {
-			w.write("        long argsAddr = args.address();\n");
-			for (int i = 0; i < params.size(); i++) {
-				generateArgRead(w, params.get(i), i);
+		// --- Empty arrays for defaults ---
+		w.write("    private static final PropertyMeta[] _EMPTY_PROPS = new PropertyMeta[0];\n");
+		w.write("    private static final MethodMeta[] _EMPTY_METHODS = new MethodMeta[0];\n");
+		w.write("    private static final SignalMeta[] _EMPTY_SIGNALS = new SignalMeta[0];\n\n");
+
+		// --- PARENT_CLASS map ---
+		w.write("    private static final Map<String, String> _PARENT_CLASS;\n");
+		w.write("    static {\n");
+		w.write("        var m = new HashMap<String, String>();\n");
+		for (ClassEntry entry : discoveredClasses) {
+			w.write("        m.put(\"" + entry.godotClassName() + "\", \"" + entry.parentClass() + "\");\n");
+		}
+		w.write("        _PARENT_CLASS = Collections.unmodifiableMap(m);\n");
+		w.write("    }\n");
+		w.write("    public String getParentClass(String name) { return _PARENT_CLASS.get(name); }\n\n");
+
+		// --- JAVA_CLASS map ---
+		w.write("    private static final Map<String, Class<?>> _JAVA_CLASS;\n");
+		w.write("    static {\n");
+		w.write("        var m = new HashMap<String, Class<?>>();\n");
+		for (ClassEntry entry : discoveredClasses) {
+			String simpleName = entry.fqn().substring(entry.fqn().lastIndexOf('.') + 1);
+			w.write("        m.put(\"" + entry.godotClassName() + "\", " + simpleName + ".class);\n");
+		}
+		w.write("        _JAVA_CLASS = Collections.unmodifiableMap(m);\n");
+		w.write("    }\n");
+		w.write("    public Class<?> getJavaClass(String name) { return _JAVA_CLASS.get(name); }\n\n");
+
+		// --- FQN_TO_GODOT_NAME map ---
+		w.write("    private static final Map<String, String> _FQN_TO_GODOT_NAME;\n");
+		w.write("    static {\n");
+		w.write("        var m = new HashMap<String, String>();\n");
+		for (ClassEntry entry : discoveredClasses) {
+			w.write("        m.put(\"" + entry.fqn() + "\", \"" + entry.godotClassName() + "\");\n");
+		}
+		w.write("        _FQN_TO_GODOT_NAME = Collections.unmodifiableMap(m);\n");
+		w.write("    }\n");
+		w.write("    public String getGodotClassName(String fqn) { return _FQN_TO_GODOT_NAME.get(fqn); }\n\n");
+
+		// --- FACTORY map ---
+		w.write("    private static final Map<String, LongFunction<Godot>> _FACTORIES;\n");
+		w.write("    static {\n");
+		w.write("        var m = new HashMap<String, LongFunction<Godot>>();\n");
+		for (ClassEntry entry : discoveredClasses) {
+			String simpleName = entry.fqn().substring(entry.fqn().lastIndexOf('.') + 1);
+			w.write("        m.put(\"" + entry.godotClassName() + "\", ptr -> {\n");
+			w.write("            " + simpleName + " instance = new " + simpleName + "();\n");
+			w.write("            instance.setNativeObject(ptr);\n");
+			w.write("            return instance;\n");
+			w.write("        });\n");
+		}
+		w.write("        _FACTORIES = Collections.unmodifiableMap(m);\n");
+		w.write("    }\n");
+		w.write("    public Godot createInstance(String name, long nativePtr) {\n");
+		w.write("        var f = _FACTORIES.get(name);\n");
+		w.write("        return f != null ? f.apply(nativePtr) : null;\n");
+		w.write("    }\n\n");
+
+		// --- EXPORTS map ---
+		w.write("    private static final Map<String, PropertyMeta[]> _EXPORTS;\n");
+		w.write("    static {\n");
+		w.write("        var m = new HashMap<String, PropertyMeta[]>();\n");
+		for (Map.Entry<String, List<FieldInfo>> e : classFields.entrySet()) {
+			w.write("        m.put(\"" + e.getKey() + "\", new PropertyMeta[] {\n");
+			for (FieldInfo f : e.getValue()) {
+				w.write("            new PropertyMeta(\"" + f.javaName() + "\", \"" + f.propertyName() + "\", \""
+						+ f.type() + "\", " + f.hintId() + ", \"" + escapeJava(f.hintString()) + "\"),\n");
+			}
+			w.write("        });\n");
+		}
+		w.write("        _EXPORTS = Collections.unmodifiableMap(m);\n");
+		w.write("    }\n");
+		w.write("    public PropertyMeta[] getExports(String name) {\n");
+		w.write("        return _EXPORTS.getOrDefault(name, _EMPTY_PROPS);\n");
+		w.write("    }\n\n");
+
+		// --- METHODS map ---
+		w.write("    private static final Map<String, MethodMeta[]> _METHODS;\n");
+		w.write("    static {\n");
+		w.write("        var m = new HashMap<String, MethodMeta[]>();\n");
+		for (Map.Entry<String, List<MethodInfo>> e : classMethods.entrySet()) {
+			w.write("        m.put(\"" + e.getKey() + "\", new MethodMeta[] {\n");
+			for (MethodInfo mi : e.getValue()) {
+				w.write("            new MethodMeta(\"" + mi.javaName() + "\", \"" + mi.godotName() + "\", \""
+						+ mi.returnType() + "\",\n");
+				w.write("                new String[] {");
+				for (int i = 0; i < mi.paramTypes().size(); i++) {
+					if (i > 0)
+						w.write(", ");
+					w.write("\"" + mi.paramTypes().get(i) + "\"");
+				}
+				w.write("},\n");
+				w.write("                new String[] {");
+				for (int i = 0; i < mi.paramNames().size(); i++) {
+					if (i > 0)
+						w.write(", ");
+					w.write("\"" + mi.paramNames().get(i) + "\"");
+				}
+				w.write("}),\n");
+			}
+			w.write("        });\n");
+		}
+		w.write("        _METHODS = Collections.unmodifiableMap(m);\n");
+		w.write("    }\n");
+		w.write("    public MethodMeta[] getMethods(String name) {\n");
+		w.write("        return _METHODS.getOrDefault(name, _EMPTY_METHODS);\n");
+		w.write("    }\n\n");
+
+		// --- SIGNALS map ---
+		w.write("    private static final Map<String, SignalMeta[]> _SIGNALS;\n");
+		w.write("    static {\n");
+		w.write("        var m = new HashMap<String, SignalMeta[]>();\n");
+		for (Map.Entry<String, List<SignalInfo>> e : classSignals.entrySet()) {
+			w.write("        m.put(\"" + e.getKey() + "\", new SignalMeta[] {\n");
+			for (SignalInfo si : e.getValue()) {
+				w.write("            new SignalMeta(\"" + si.signalName() + "\",\n");
+				w.write("                new String[] {");
+				for (int i = 0; i < si.paramTypes().size(); i++) {
+					if (i > 0)
+						w.write(", ");
+					w.write("\"" + si.paramTypes().get(i) + "\"");
+				}
+				w.write("},\n");
+				w.write("                new String[] {");
+				for (int i = 0; i < si.paramNames().size(); i++) {
+					if (i > 0)
+						w.write(", ");
+					w.write("\"" + si.paramNames().get(i) + "\"");
+				}
+				w.write("}),\n");
+			}
+			w.write("        });\n");
+		}
+		w.write("        _SIGNALS = Collections.unmodifiableMap(m);\n");
+		w.write("    }\n");
+		w.write("    public SignalMeta[] getSignals(String name) {\n");
+		w.write("        return _SIGNALS.getOrDefault(name, _EMPTY_SIGNALS);\n");
+		w.write("    }\n\n");
+
+		// --- VIRTUAL_OVERRIDES map ---
+		w.write("    private static final Map<String, Set<String>> _VIRTUAL_OVERRIDES;\n");
+		w.write("    static {\n");
+		w.write("        var m = new HashMap<String, Set<String>>();\n");
+		for (Map.Entry<String, List<VirtualOverrideInfo>> e : classVirtualOverrides.entrySet()) {
+			w.write("        m.put(\"" + e.getKey() + "\", Set.of(");
+			boolean first = true;
+			for (VirtualOverrideInfo voi : e.getValue()) {
+				if (!first)
+					w.write(", ");
+				w.write("\"" + voi.godotName() + "\"");
+				first = false;
+			}
+			w.write("));\n");
+		}
+		w.write("        _VIRTUAL_OVERRIDES = Collections.unmodifiableMap(m);\n");
+		w.write("    }\n");
+		w.write("    public Set<String> getVirtualOverrides(String name) {\n");
+		w.write("        return _VIRTUAL_OVERRIDES.getOrDefault(name, Set.of());\n");
+		w.write("    }\n\n");
+
+		// --- VIRTUAL HASH DATA ---
+		w.write("    private static final Map<String, Map<Long, Set<String>>> _VIRTUAL_HASH_TO_NAMES;\n");
+		w.write("    private static final Map<String, Set<String>> _VIRTUAL_ALL_NAMES;\n");
+		w.write("    static {\n");
+		w.write("        var hm = new HashMap<String, Map<Long, Set<String>>>();\n");
+		w.write("        var am = new HashMap<String, Set<String>>();\n");
+		for (Map.Entry<String, Map<Long, Set<String>>> e : virtualHashData.entrySet()) {
+			w.write("        var htn_" + sanitize(e.getKey()) + " = new HashMap<Long, Set<String>>();\n");
+			for (Map.Entry<Long, Set<String>> he : e.getValue().entrySet()) {
+				w.write("        htn_" + sanitize(e.getKey()) + ".put(" + he.getKey() + "L, Set.of(");
+				boolean first = true;
+				for (String name : he.getValue()) {
+					if (!first)
+						w.write(", ");
+					w.write("\"" + name + "\"");
+					first = false;
+				}
+				w.write("));\n");
+			}
+			w.write("        hm.put(\"" + e.getKey() + "\", Collections.unmodifiableMap(htn_" + sanitize(e.getKey())
+					+ "));\n");
+
+			w.write("        var an_" + sanitize(e.getKey()) + " = new HashSet<String>();\n");
+			for (String name : virtualAllNames.getOrDefault(e.getKey(), Set.of())) {
+				w.write("        an_" + sanitize(e.getKey()) + ".add(\"" + name + "\");\n");
+			}
+			w.write("        am.put(\"" + e.getKey() + "\", Collections.unmodifiableSet(an_" + sanitize(e.getKey())
+					+ "));\n");
+		}
+		w.write("        _VIRTUAL_HASH_TO_NAMES = Collections.unmodifiableMap(hm);\n");
+		w.write("        _VIRTUAL_ALL_NAMES = Collections.unmodifiableMap(am);\n");
+		w.write("    }\n");
+		w.write("    public Map<Long, Set<String>> getVirtualHashToNames(String parent) {\n");
+		w.write("        return _VIRTUAL_HASH_TO_NAMES.getOrDefault(parent, Map.of());\n");
+		w.write("    }\n");
+		w.write("    public Set<String> getVirtualAllNames(String parent) {\n");
+		w.write("        return _VIRTUAL_ALL_NAMES.getOrDefault(parent, Set.of());\n");
+		w.write("    }\n\n");
+
+		// --- VarHandle fields ---
+		for (Map.Entry<String, List<FieldInfo>> e : classFields.entrySet()) {
+			for (FieldInfo f : e.getValue()) {
+				String safeName = sanitize(e.getKey()) + "_" + sanitize(f.javaName());
+				w.write("    private static VarHandle VH_" + safeName + ";\n");
 			}
 		}
+		w.write("\n");
 
-		// Call user method
-		String returnType = method.returnType();
-		boolean hasReturn = !"void".equals(returnType);
-		w.write("        try {\n");
-		w.write("            ");
-		if (hasReturn) {
-			w.write("Object result = ");
-		}
-		w.write("self." + method.javaName() + "(");
-		for (int i = 0; i < params.size(); i++) {
-			if (i > 0)
-				w.write(", ");
-			w.write("arg" + i);
-		}
-		w.write(");\n");
-
-		// Handle return value — write Variant to ret pointer
-		if (hasReturn) {
-			w.write("            if (ret.address() != 0) {\n");
-			w.write("                if (result != null) {\n");
-			w.write("                    Variant retVar = VariantUtils.fromObject(result);\n");
-			w.write("                    Bridge.callVoid(ApiIndex.VARIANT_NEW_COPY, ret, retVar.getSegment());\n");
-			w.write("                } else {\n");
-			w.write("                    Bridge.callVoid(ApiIndex.VARIANT_NEW_NIL, ret);\n");
-			w.write("                }\n");
-			w.write("            }\n");
+		// --- Static initializer for VarHandles ---
+		if (!classFields.isEmpty()) {
+			w.write("    static {\n");
+			w.write("        try {\n");
+			w.write("            var lookup = MethodHandles.lookup();\n");
+			for (Map.Entry<String, List<FieldInfo>> e : classFields.entrySet()) {
+				String classSimpleName = getClassSimpleName(e.getKey());
+				for (FieldInfo f : e.getValue()) {
+					String safeName = sanitize(e.getKey()) + "_" + sanitize(f.javaName());
+					w.write("            VH_" + safeName + " = lookup.findVarHandle(" + classSimpleName + ".class, \""
+							+ f.javaName() + "\", " + javaTypeForVarHandle(f.type()) + ");\n");
+				}
+			}
+			w.write("        } catch (Exception e) {\n");
+			w.write("            throw new ExceptionInInitializerError(e);\n");
+			w.write("        }\n");
+			w.write("    }\n\n");
 		}
 
-		w.write("        } catch (Throwable t) {\n");
-		w.write("            System.err.println(\"WARN: \" + self.getClass().getSimpleName() + \"." + method.javaName()
-				+ "() failed: \" + t.getMessage());\n");
+		// --- Property dispatch ---
+		w.write("    public boolean hasProperty(String godotClassName, String propName) {\n");
+		w.write("        var exports = _EXPORTS.get(godotClassName);\n");
+		w.write("        if (exports == null) return false;\n");
+		w.write("        for (var e : exports) {\n");
+		w.write("            if (e.godotName().equals(propName) || e.javaName().equals(propName)) return true;\n");
 		w.write("        }\n");
-
+		w.write("        return false;\n");
 		w.write("    }\n\n");
+
+		w.write("    public Object getProperty(String godotClassName, String propName, Godot instance) {\n");
+		w.write("        var exports = _EXPORTS.get(godotClassName);\n");
+		w.write("        if (exports == null) return null;\n");
+		for (Map.Entry<String, List<FieldInfo>> e : classFields.entrySet()) {
+			w.write("        if (\"" + e.getKey() + "\".equals(godotClassName)) {\n");
+			for (FieldInfo f : e.getValue()) {
+				String safeName = sanitize(e.getKey()) + "_" + sanitize(f.javaName());
+				w.write("            if (\"" + f.propertyName() + "\".equals(propName) || \"" + f.javaName()
+						+ "\".equals(propName)) return VH_" + safeName + ".get(instance);\n");
+			}
+			w.write("        }\n");
+		}
+		w.write("        return null;\n");
+		w.write("    }\n\n");
+
+		w.write("    public boolean setProperty(String godotClassName, String propName, Godot instance, Object value) {\n");
+		w.write("        var exports = _EXPORTS.get(godotClassName);\n");
+		w.write("        if (exports == null) return false;\n");
+		for (Map.Entry<String, List<FieldInfo>> e : classFields.entrySet()) {
+			w.write("        if (\"" + e.getKey() + "\".equals(godotClassName)) {\n");
+			for (FieldInfo f : e.getValue()) {
+				String safeName = sanitize(e.getKey()) + "_" + sanitize(f.javaName());
+				String setterArg = unboxExpr(f.type(), "value");
+				w.write("            if (\"" + f.propertyName() + "\".equals(propName) || \"" + f.javaName()
+						+ "\".equals(propName)) { VH_" + safeName + ".set(instance, " + setterArg
+						+ "); return true; }\n");
+			}
+			w.write("        }\n");
+		}
+		w.write("        return false;\n");
+		w.write("    }\n\n");
+
+		// --- Method dispatch (has, ptrcall, variant) ---
+		w.write("    public boolean hasMethod(String godotClassName, String methodName) {\n");
+		w.write("        var methods = _METHODS.get(godotClassName);\n");
+		w.write("        if (methods == null) return false;\n");
+		w.write("        for (var m : methods) {\n");
+		w.write("            if (m.godotName().equals(methodName)) return true;\n");
+		w.write("        }\n");
+		w.write("        return false;\n");
+		w.write("    }\n\n");
+
+		// ptrcall dispatch — typed pointer args
+		w.write("    public Object dispatchPtrcall(String godotClassName, String methodName,\n");
+		w.write("            Godot instance, MemorySegment args, int argc) throws Throwable {\n");
+		if (!classMethods.isEmpty()) {
+			w.write("        return switch (godotClassName) {\n");
+			for (Map.Entry<String, List<MethodInfo>> e : classMethods.entrySet()) {
+				String classSimpleName = getClassSimpleName(e.getKey());
+				w.write("            case \"" + e.getKey() + "\" -> _dispatch_" + sanitize(e.getKey())
+						+ "_ptrcall(methodName, (" + classSimpleName + ") instance, args, argc);\n");
+			}
+			w.write("            default -> null;\n");
+			w.write("        };\n");
+		} else {
+			w.write("        return null;\n");
+		}
+		w.write("    }\n\n");
+
+		// variant call dispatch — Object[] args
+		w.write("    public Object dispatchVariantCall(String godotClassName, String methodName,\n");
+		w.write("            Godot instance, Object[] args) throws Throwable {\n");
+		if (!classMethods.isEmpty()) {
+			w.write("        return switch (godotClassName) {\n");
+			for (Map.Entry<String, List<MethodInfo>> e : classMethods.entrySet()) {
+				String classSimpleName = getClassSimpleName(e.getKey());
+				w.write("            case \"" + e.getKey() + "\" -> _dispatch_" + sanitize(e.getKey())
+						+ "_variant(methodName, (" + classSimpleName + ") instance, args);\n");
+			}
+			w.write("            default -> null;\n");
+			w.write("        };\n");
+		} else {
+			w.write("        return null;\n");
+		}
+		w.write("    }\n\n");
+
+		// Per-class ptrcall dispatch methods
+		for (Map.Entry<String, List<MethodInfo>> e : classMethods.entrySet()) {
+			String classSimpleName = getClassSimpleName(e.getKey());
+			w.write("    private static Object _dispatch_" + sanitize(e.getKey()) + "_ptrcall(String methodName, "
+					+ classSimpleName + " self,\n");
+			w.write("            MemorySegment args, int argc) throws Throwable {\n");
+			for (MethodInfo mi : e.getValue()) {
+				if (mi.paramTypes().isEmpty()) {
+					if ("void".equals(mi.returnType())) {
+						w.write("        if (\"" + mi.godotName() + "\".equals(methodName)) { self." + mi.javaName()
+								+ "(); return null; }\n");
+					} else {
+						w.write("        if (\"" + mi.godotName() + "\".equals(methodName)) { return self."
+								+ mi.javaName() + "(); }\n");
+					}
+				} else {
+					w.write("        if (\"" + mi.godotName() + "\".equals(methodName)) {\n");
+					for (int i = 0; i < mi.paramTypes().size(); i++) {
+						generateArgRead(w, mi.paramTypes().get(i), i);
+					}
+					if ("void".equals(mi.returnType())) {
+						w.write("            self." + mi.javaName() + "(");
+						for (int i = 0; i < mi.paramTypes().size(); i++) {
+							if (i > 0)
+								w.write(", ");
+							w.write("arg" + i);
+						}
+						w.write(");\n");
+						w.write("            return null;\n");
+					} else {
+						w.write("            return self." + mi.javaName() + "(");
+						for (int i = 0; i < mi.paramTypes().size(); i++) {
+							if (i > 0)
+								w.write(", ");
+							w.write("arg" + i);
+						}
+						w.write(");\n");
+					}
+					w.write("        }\n");
+				}
+			}
+			w.write("        return null;\n");
+			w.write("    }\n\n");
+		}
+
+		// Per-class variant dispatch methods
+		for (Map.Entry<String, List<MethodInfo>> e : classMethods.entrySet()) {
+			String classSimpleName = getClassSimpleName(e.getKey());
+			w.write("    private static Object _dispatch_" + sanitize(e.getKey()) + "_variant(String methodName, "
+					+ classSimpleName + " self,\n");
+			w.write("            Object[] args) throws Throwable {\n");
+			for (MethodInfo mi : e.getValue()) {
+				if (mi.paramTypes().isEmpty()) {
+					if ("void".equals(mi.returnType())) {
+						w.write("        if (\"" + mi.godotName() + "\".equals(methodName)) { self." + mi.javaName()
+								+ "(); return null; }\n");
+					} else {
+						w.write("        if (\"" + mi.godotName() + "\".equals(methodName)) { return self."
+								+ mi.javaName() + "(); }\n");
+					}
+				} else {
+					w.write("        if (\"" + mi.godotName() + "\".equals(methodName)) {\n");
+					for (int i = 0; i < mi.paramTypes().size(); i++) {
+						String pt = mi.paramTypes().get(i);
+						w.write("            " + pt + " arg" + i + " = " + unboxExpr(pt, "args[" + i + "]") + ";\n");
+					}
+					if ("void".equals(mi.returnType())) {
+						w.write("            self." + mi.javaName() + "(");
+						for (int i = 0; i < mi.paramTypes().size(); i++) {
+							if (i > 0)
+								w.write(", ");
+							w.write("arg" + i);
+						}
+						w.write(");\n");
+						w.write("            return null;\n");
+					} else {
+						w.write("            return self." + mi.javaName() + "(");
+						for (int i = 0; i < mi.paramTypes().size(); i++) {
+							if (i > 0)
+								w.write(", ");
+							w.write("arg" + i);
+						}
+						w.write(");\n");
+					}
+					w.write("        }\n");
+				}
+			}
+			w.write("        return null;\n");
+			w.write("    }\n\n");
+		}
+
+		// --- Virtual dispatch ---
+		if (!classVirtualOverrides.isEmpty()) {
+			w.write("    public void dispatchVirtual(String godotClassName, String methodName,\n");
+			w.write("            MemorySegment instance, MemorySegment args, long argCount, MemorySegment ret) {\n");
+			w.write("        switch (godotClassName) {\n");
+			for (Map.Entry<String, List<VirtualOverrideInfo>> e : classVirtualOverrides.entrySet()) {
+				w.write("            case \"" + e.getKey() + "\" -> _dispatch_" + sanitize(e.getKey())
+						+ "_virtual(methodName, instance, args, argCount, ret);\n");
+			}
+			w.write("            default -> {}\n");
+			w.write("        }\n");
+			w.write("    }\n\n");
+
+			// Per-class virtual dispatch
+			for (Map.Entry<String, List<VirtualOverrideInfo>> e : classVirtualOverrides.entrySet()) {
+				String ownerFQN = getFQN(e.getKey());
+				String classSimpleName = getClassSimpleName(e.getKey());
+				w.write("    private static void _dispatch_" + sanitize(e.getKey()) + "_virtual(String methodName,\n");
+				w.write("            MemorySegment instance, MemorySegment args, long argCount, MemorySegment ret) {\n");
+				w.write("        if (Bridge.isInDowncall()) {\n");
+				w.write("            if (ret.address() != 0) ret.set(JAVA_INT, 0, 0);\n");
+				w.write("            return;\n");
+				w.write("        }\n");
+				w.write("        long instanceAddr = instance.address();\n");
+				w.write("        Godot obj = JavaObjectMap.get(instanceAddr);\n");
+				w.write("        if (obj == null) return;\n");
+				w.write("        " + ownerFQN + " self = (" + ownerFQN + ") obj;\n");
+
+				for (VirtualOverrideInfo voi : e.getValue()) {
+					w.write("        if (\"" + voi.godotName() + "\".equals(methodName)) {\n");
+					if (!voi.params().isEmpty()) {
+						for (int i = 0; i < voi.params().size(); i++) {
+							generateVirtualArgRead(w, voi.params().get(i), i);
+						}
+					}
+					boolean hasReturn = !"void".equals(voi.returnType());
+					w.write("            try {\n");
+					w.write("                ");
+					if (hasReturn) {
+						w.write("Object result = ");
+					}
+					w.write("self." + voi.javaName() + "(");
+					for (int i = 0; i < voi.params().size(); i++) {
+						if (i > 0)
+							w.write(", ");
+						w.write("arg" + i);
+					}
+					w.write(");\n");
+					if (hasReturn) {
+						w.write("                if (ret.address() != 0) {\n");
+						w.write("                    VariantUtils.writeVariantFromObject(ret, result);\n");
+						w.write("                }\n");
+					}
+					w.write("            } catch (Throwable t) {\n");
+					w.write("                System.err.println(\"WARN: " + classSimpleName + "." + voi.javaName()
+							+ "() failed: \" + t.getMessage());\n");
+					w.write("            }\n");
+					w.write("            return;\n");
+					w.write("        }\n");
+				}
+				w.write("    }\n\n");
+			}
+		} else {
+			w.write("    public void dispatchVirtual(String godotClassName, String methodName,\n");
+			w.write("            MemorySegment instance, MemorySegment args, long argCount, MemorySegment ret) {\n");
+			w.write("        // No virtual overrides\n");
+			w.write("    }\n\n");
+		}
+
+		w.write("}\n");
 	}
 
-	private void generateArgRead(Writer w, ParamTypeInfo param, int index) throws IOException {
-		String category = param.category();
-		String fqn = param.fqn();
+	private String sanitize(String name) {
+		return name.replace('.', '_').replace('$', '_');
+	}
 
-		// Read the pointer to argument data from the args array
-		w.write("        long dataPtr" + index + " = MemorySegment.ofAddress(argsAddr + " + index
-				+ " * ADDRESS.byteSize()).reinterpret(ADDRESS.byteSize()).get(JAVA_LONG, 0);\n");
+	private String getClassSimpleName(String godotClassName) {
+		for (ClassEntry entry : discoveredClasses) {
+			if (entry.godotClassName().equals(godotClassName)) {
+				return entry.fqn().substring(entry.fqn().lastIndexOf('.') + 1);
+			}
+		}
+		return godotClassName;
+	}
+
+	private String getFQN(String godotClassName) {
+		for (ClassEntry entry : discoveredClasses) {
+			if (entry.godotClassName().equals(godotClassName)) {
+				return entry.fqn();
+			}
+		}
+		return godotClassName;
+	}
+
+	private String boxedType(String descriptor) {
+		return switch (descriptor) {
+			case "boolean" -> "Boolean";
+			case "byte" -> "Byte";
+			case "short" -> "Short";
+			case "int" -> "Integer";
+			case "long" -> "Long";
+			case "float" -> "Float";
+			case "double" -> "Double";
+			default -> "Object";
+		};
+	}
+
+	private String castTypeForVariant(String descriptor) {
+		return switch (descriptor) {
+			case "boolean" -> "Boolean";
+			case "int" -> "Number";
+			case "long" -> "Number";
+			case "float" -> "Number";
+			case "double" -> "Number";
+			case "byte" -> "Number";
+			case "short" -> "Number";
+			case "java.lang.String" -> "String";
+			default -> "Object";
+		};
+	}
+
+	private String unboxExpr(String descriptor, String expr) {
+		return switch (descriptor) {
+			case "int" -> "((Number) " + expr + ").intValue()";
+			case "long" -> "((Number) " + expr + ").longValue()";
+			case "float" -> "((Number) " + expr + ").floatValue()";
+			case "double" -> "((Number) " + expr + ").doubleValue()";
+			case "short" -> "((Number) " + expr + ").shortValue()";
+			case "byte" -> "((Number) " + expr + ").byteValue()";
+			case "boolean" -> "(Boolean) " + expr;
+			case "java.lang.String" -> "(String) " + expr;
+			default -> "(" + descriptor + ") " + expr;
+		};
+	}
+
+	private String escapeJava(String s) {
+		return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n");
+	}
+
+	private void generateArgRead(Writer w, String paramType, int index) throws IOException {
+		// Read typed pointer from args array for ptrcall dispatch
+		w.write("            long dataPtr" + index + " = args.reinterpret((long) argc * ADDRESS.byteSize())\n");
+		w.write("                .get(ADDRESS, (long) " + index + " * ADDRESS.byteSize()).address();\n");
+
+		switch (paramType) {
+			case "double" -> w.write(
+					"            double arg" + index + " = dataPtr" + index + " != 0 ? MemorySegment.ofAddress(dataPtr"
+							+ index + ").reinterpret(8).get(JAVA_DOUBLE, 0) : 0.0;\n");
+			case "float" -> w.write(
+					"            float arg" + index + " = dataPtr" + index + " != 0 ? MemorySegment.ofAddress(dataPtr"
+							+ index + ").reinterpret(4).get(JAVA_FLOAT, 0) : 0.0f;\n");
+			case "int" -> w.write("            int arg" + index + " = dataPtr" + index
+					+ " != 0 ? MemorySegment.ofAddress(dataPtr" + index + ").reinterpret(4).get(JAVA_INT, 0) : 0;\n");
+			case "long" -> w.write("            long arg" + index + " = dataPtr" + index
+					+ " != 0 ? MemorySegment.ofAddress(dataPtr" + index + ").reinterpret(8).get(JAVA_LONG, 0) : 0L;\n");
+			case "boolean" -> w.write("            boolean arg" + index + " = dataPtr" + index
+					+ " != 0 && MemorySegment.ofAddress(dataPtr" + index
+					+ ").reinterpret(1).get(JAVA_BYTE, 0) != 0;\n");
+			case "java.lang.String" -> w.write("            String arg" + index + " = dataPtr" + index
+					+ " != 0 ? new GodotString(MemorySegment.ofAddress(dataPtr" + index
+					+ ")).toJavaString() : null;\n");
+			default -> {
+				// Object types — read pointer and wrap
+				w.write("            long objPtr" + index + " = dataPtr" + index
+						+ " != 0 ? MemorySegment.ofAddress(dataPtr" + index
+						+ ").reinterpret(ADDRESS.byteSize()).get(JAVA_LONG, 0) : 0L;\n");
+				w.write("            " + paramType + " arg" + index + " = objPtr" + index + " != 0 ? (" + paramType
+						+ ") VariantUtils.toObject(Variant.fromObjectPtr(objPtr" + index + ")) : null;\n");
+			}
+		}
+	}
+
+	private void generateVirtualArgRead(Writer w, ParamTypeInfo param, int index) throws IOException {
+		String fqn = param.fqn();
+		String category = param.category();
+		// Virtual dispatch args are GDExtensionConstTypePtr* (typed pointer array).
+		// Each p_args[i] points to a raw typed value, NOT a Variant.
+		w.write("            MemorySegment rawPtr" + index + " = MemorySegment.ofAddress(args.address() + (long) "
+				+ index + " * ADDRESS.byteSize())\n");
+		w.write("                .reinterpret(ADDRESS.byteSize()).get(ADDRESS, 0);\n");
 
 		switch (category) {
-			case "DOUBLE" ->
-				w.write("        double arg" + index + " = dataPtr" + index + " != 0 ? MemorySegment.ofAddress(dataPtr"
-						+ index + ").reinterpret(8).get(JAVA_DOUBLE, 0) : 0.0;\n");
-			case "FLOAT" ->
-				w.write("        float arg" + index + " = dataPtr" + index + " != 0 ? MemorySegment.ofAddress(dataPtr"
-						+ index + ").reinterpret(4).get(JAVA_FLOAT, 0) : 0.0f;\n");
-			case "INT" -> w.write("        int arg" + index + " = dataPtr" + index
-					+ " != 0 ? MemorySegment.ofAddress(dataPtr" + index + ").reinterpret(4).get(JAVA_INT, 0) : 0;\n");
-			case "LONG" -> w.write("        long arg" + index + " = dataPtr" + index
-					+ " != 0 ? MemorySegment.ofAddress(dataPtr" + index + ").reinterpret(8).get(JAVA_LONG, 0) : 0L;\n");
-			case "BOOLEAN" -> w.write(
-					"        boolean arg" + index + " = dataPtr" + index + " != 0 && MemorySegment.ofAddress(dataPtr"
-							+ index + ").reinterpret(1).get(JAVA_BYTE, 0) != 0;\n");
-			case "STRING" -> {
-				w.write("        String arg" + index + " = dataPtr" + index
-						+ " != 0 ? new GodotString(MemorySegment.ofAddress(dataPtr" + index
-						+ ")).toJavaString() : null;\n");
-			}
+			case "DOUBLE" -> w.write("            double arg" + index + " = !rawPtr" + index
+					+ ".equals(MemorySegment.NULL) ? MemorySegment.ofAddress(rawPtr" + index
+					+ ".address()).reinterpret(8).get(JAVA_DOUBLE, 0) : 0.0;\n");
+			case "FLOAT" -> w.write("            float arg" + index + " = !rawPtr" + index
+					+ ".equals(MemorySegment.NULL) ? MemorySegment.ofAddress(rawPtr" + index
+					+ ".address()).reinterpret(4).get(JAVA_FLOAT, 0) : 0.0f;\n");
+			case "INT" -> w.write("            int arg" + index + " = !rawPtr" + index
+					+ ".equals(MemorySegment.NULL) ? MemorySegment.ofAddress(rawPtr" + index
+					+ ".address()).reinterpret(4).get(JAVA_INT, 0) : 0;\n");
+			case "LONG" -> w.write("            long arg" + index + " = !rawPtr" + index
+					+ ".equals(MemorySegment.NULL) ? MemorySegment.ofAddress(rawPtr" + index
+					+ ".address()).reinterpret(8).get(JAVA_LONG, 0) : 0L;\n");
+			case "BOOLEAN" -> w.write("            boolean arg" + index + " = !rawPtr" + index
+					+ ".equals(MemorySegment.NULL) && MemorySegment.ofAddress(rawPtr" + index
+					+ ".address()).reinterpret(1).get(JAVA_BYTE, 0) != 0;\n");
+			case "STRING" -> w.write("            String arg" + index + " = !rawPtr" + index
+					+ ".equals(MemorySegment.NULL) ? new GodotString(MemorySegment.ofAddress(rawPtr" + index
+					+ ".address())).toJavaString() : null;\n");
 			case "GODOT_OBJECT" -> {
-				// Dereference dataPtr to get GDExtensionObjectPtr, then wrap
-				w.write("        long objPtr" + index + " = dataPtr" + index + " != 0 ? MemorySegment.ofAddress(dataPtr"
-						+ index + ").reinterpret(ADDRESS.byteSize()).get(JAVA_LONG, 0) : 0L;\n");
-				w.write("        " + fqn + " arg" + index + ";\n");
-				w.write("        if (objPtr" + index + " == 0) {\n");
-				w.write("            arg" + index + " = null;\n");
-				w.write("        } else {\n");
-				w.write("            Godot existing" + index + " = JavaObjectMap.get(objPtr" + index + ");\n");
-				w.write("            if (existing" + index + " instanceof " + fqn + ") {\n");
-				w.write("                arg" + index + " = (" + fqn + ") existing" + index + ";\n");
-				w.write("            } else {\n");
-				w.write("                arg" + index + " = VirtualDispatch.wrapObject(" + fqn + ".class, objPtr"
-						+ index + ");\n");
+				w.write("            " + fqn + " arg" + index + " = null;\n");
+				w.write("            if (!rawPtr" + index + ".equals(MemorySegment.NULL)) {\n");
+				w.write("                long objAddr" + index + " = rawPtr" + index
+						+ ".reinterpret(ADDRESS.byteSize()).get(ADDRESS, 0).address();\n");
+				w.write("                if (objAddr" + index + " != 0) arg" + index + " = (" + fqn
+						+ ") VariantUtils.toObject(Variant.fromObjectPtr(objAddr" + index + "));\n");
 				w.write("            }\n");
-				w.write("        }\n");
 			}
 			default -> {
-				// UNKNOWN: use VariantUtils.toObject as fallback
-				w.write("        long objPtr" + index + " = dataPtr" + index + " != 0 ? MemorySegment.ofAddress(dataPtr"
-						+ index + ").reinterpret(ADDRESS.byteSize()).get(JAVA_LONG, 0) : 0L;\n");
-				w.write("        Object arg" + index + " = objPtr" + index
-						+ " != 0 ? VariantUtils.toObject(Variant.fromObjectPtr(objPtr" + index + ")) : null;\n");
+				// Fallback: treat as Variant for unknown types
+				w.write("            " + fqn + " arg" + index + " = !rawPtr" + index + ".equals(MemorySegment.NULL) ? ("
+						+ fqn + ") VariantUtils.toObject(new Variant(MemorySegment.ofAddress(rawPtr" + index
+						+ ".address()).reinterpret(24))) : null;\n");
 			}
 		}
 	}

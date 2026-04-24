@@ -3,6 +3,7 @@ package org.godot.bridge;
 import org.godot.Godot;
 import org.godot.core.Variant;
 import org.godot.core.VariantUtils;
+import org.godot.internal.dispatch.Dispatch;
 import org.godot.internal.ref.JavaObjectMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -26,6 +27,10 @@ import static java.lang.foreign.ValueLayout.*;
  * <p>
  * This is different from GDExtensionClassMethodCall — the callable doesn't have
  * an instance pointer, only userdata that points to (objectId, methodName).
+ *
+ * <p>
+ * All reflection has been eliminated. Method dispatch is handled by the
+ * APT-generated DispatchIndex via the {@link Dispatch} facade.
  */
 public final class CallableDispatch {
 
@@ -120,33 +125,6 @@ public final class CallableDispatch {
 		return callStub;
 	}
 
-	/** Coerce a Variant-derived value to the expected Java parameter type. */
-	private static Object coerceType(Object value, Class<?> targetType) {
-		if (value == null)
-			return null;
-		if (targetType == int.class || targetType == Integer.class) {
-			if (value instanceof Number n)
-				return n.intValue();
-		}
-		if (targetType == long.class || targetType == Long.class) {
-			if (value instanceof Number n)
-				return n.longValue();
-		}
-		if (targetType == float.class || targetType == Float.class) {
-			if (value instanceof Number n)
-				return n.floatValue();
-		}
-		if (targetType == double.class || targetType == Double.class) {
-			if (value instanceof Number n)
-				return n.doubleValue();
-		}
-		if (targetType == boolean.class || targetType == Boolean.class) {
-			if (value instanceof Boolean b)
-				return b;
-		}
-		return value;
-	}
-
 	/**
 	 * Panama adapter called by Godot when a custom callable is invoked.
 	 *
@@ -157,7 +135,8 @@ public final class CallableDispatch {
 			MemorySegment errorSeg) {
 		// Discard re-entrant upcall during downcall — native pointers are ephemeral
 		if (Bridge.isInDowncall()) {
-			Bridge.callVoid(org.godot.internal.api.ApiIndex.VARIANT_NEW_NIL, retSeg);
+			// Use byte-level write to avoid downcall
+			writeNilVariant(retSeg);
 			setError(errorSeg, ERROR_OK);
 			return;
 		}
@@ -180,13 +159,10 @@ public final class CallableDispatch {
 				return;
 			}
 
-			// Get the method from the object
-			java.lang.reflect.Method method;
-			try {
-				method = obj.getClass().getDeclaredMethod(entry.methodName);
-			} catch (NoSuchMethodException e) {
-				logger.error("CallableDispatch: method '{}' not found on {}", entry.methodName,
-						obj.getClass().getName());
+			// Resolve the Godot class name for dispatch
+			String godotClassName = Dispatch.getGodotClassName(obj.getClass().getName());
+			if (godotClassName == null || godotClassName.isEmpty()) {
+				logger.error("CallableDispatch: cannot resolve Godot class name for {}", obj.getClass().getName());
 				setError(errorSeg, ERROR_INVALID_ARGUMENT);
 				return;
 			}
@@ -194,13 +170,11 @@ public final class CallableDispatch {
 			// Convert variant args to Java objects
 			int argc = (int) argCount;
 			Object[] javaArgs = new Object[argc];
-			Class<?>[] paramTypes = method.getParameterTypes();
 			for (int i = 0; i < argc; i++) {
 				// args is actually an array of Variant pointers: p_args[i]
 				MemorySegment argPtr = argsSeg.reinterpret(8L * argc).get(ADDRESS, (long) i * 8L);
 				if (!argPtr.equals(MemorySegment.NULL)) {
-					Object raw = VariantUtils.toObject(new Variant(argPtr.reinterpret(24)));
-					javaArgs[i] = coerceType(raw, paramTypes[i]);
+					javaArgs[i] = VariantUtils.toObject(new Variant(argPtr.reinterpret(24)));
 				}
 			}
 
@@ -214,15 +188,16 @@ public final class CallableDispatch {
 				argsToInvoke = javaArgs;
 			}
 
-			// Invoke the Java method
-			Object result = method.invoke(obj, argsToInvoke);
+			// Dispatch via Dispatch facade (zero-reflection path)
+			Object result = Dispatch.dispatchVariantCall(godotClassName, entry.methodName, obj, argsToInvoke);
 
 			// Set return value
-			if (method.getReturnType() != void.class && result != null) {
-				Variant retVar = VariantUtils.fromObject(result);
-				Bridge.callVoid(org.godot.internal.api.ApiIndex.VARIANT_NEW_COPY, retSeg, retVar.getSegment());
+			if (result != null) {
+				org.godot.core.VariantUtils.writeVariantFromObject(retSeg, result);
 			} else {
-				Bridge.callVoid(org.godot.internal.api.ApiIndex.VARIANT_NEW_NIL, retSeg);
+				// For void methods, write nil via byte-level copy from a pre-allocated nil
+				// Variant
+				writeNilVariant(retSeg);
 			}
 
 			setError(errorSeg, ERROR_OK);
@@ -238,6 +213,17 @@ public final class CallableDispatch {
 			errorSeg.reinterpret(16).set(JAVA_INT, 4, 0);
 			errorSeg.reinterpret(16).set(JAVA_INT, 8, 0);
 		}
+	}
+
+	/**
+	 * Write a nil Variant to retSeg using byte-level copy from a static nil
+	 * template. Uses byte-level writes to avoid downcall from upcall context.
+	 */
+	private static void writeNilVariant(MemorySegment retSeg) {
+		// NIL Variant: type=0, padding=0, data=0 (all zeros for 24 bytes)
+		// Only type needs to be written explicitly (data is already zero from Godot's
+		// init)
+		retSeg.set(JAVA_INT, 0, 0); // VariantType.NIL = 0
 	}
 
 	private static class CallableEntry {

@@ -53,7 +53,7 @@ public class TypeMapper {
 
 		// Special types
 		TYPE_MAP.put("Variant", "Object");
-		TYPE_MAP.put("Object", "GodotObject");
+		TYPE_MAP.put("Object", "Godot");
 		TYPE_MAP.put("Callable", "Callable");
 		TYPE_MAP.put("Signal", "Signal");
 		TYPE_MAP.put("RID", "long");

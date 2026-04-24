@@ -69,43 +69,4 @@ class MethodDispatchTest {
 		assertEquals(expectedTotal, allKeys.size());
 		assertEquals(expectedTotal, allKeys.stream().distinct().count());
 	}
-
-	@Test
-	void coerceTypeHandlesNumericConversions() throws Exception {
-		var method = MethodDispatch.class.getDeclaredMethod("coerceType", Object.class, Class.class);
-		method.setAccessible(true);
-
-		// Int conversions
-		assertEquals(42, method.invoke(null, 42L, int.class));
-		assertEquals(42, method.invoke(null, 42.0, int.class));
-		assertEquals(42, method.invoke(null, (short) 42, int.class));
-
-		// Double conversions
-		assertEquals(42.0, method.invoke(null, 42, double.class));
-		assertEquals(42.5, method.invoke(null, 42.5f, double.class));
-
-		// Float conversions
-		assertEquals(42.0f, method.invoke(null, 42, float.class));
-
-		// Long conversions
-		assertEquals(42L, method.invoke(null, 42, long.class));
-	}
-
-	@Test
-	void coerceTypeReturnsNullForNull() throws Exception {
-		var method = MethodDispatch.class.getDeclaredMethod("coerceType", Object.class, Class.class);
-		method.setAccessible(true);
-
-		assertNull(method.invoke(null, null, int.class));
-		assertNull(method.invoke(null, null, String.class));
-	}
-
-	@Test
-	void coerceTypePassesThroughNonNumeric() throws Exception {
-		var method = MethodDispatch.class.getDeclaredMethod("coerceType", Object.class, Class.class);
-		method.setAccessible(true);
-
-		String value = "hello";
-		assertEquals(value, method.invoke(null, value, String.class));
-	}
 }

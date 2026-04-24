@@ -6,6 +6,7 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -25,7 +26,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * // Create upcall stub for a Node's _process method
  * Node node = (Node) javaObject;
  * MethodHandle processHandle = MethodHandles.lookup()
- * 		.unreflectSpecial(Node.class.getDeclaredMethod("_process", double.class), Node.class).bindTo(node);
+ * 		.findVirtual(Node.class, "_process", MethodType.methodType(void.class, double.class)).bindTo(node);
  *
  * MemorySegment processStub = UpcallStub.create(processHandle, FunctionDescriptor.ofVoid(ValueLayout.JAVA_DOUBLE));
  *
@@ -81,9 +82,10 @@ public final class UpcallStub {
 	public static MemorySegment createVoid(Object target, String methodName, Class<?> clazz) {
 		try {
 			MethodHandles.Lookup lookup = MethodHandles.lookup();
-			MethodHandle handle = lookup.unreflectSpecial(clazz.getDeclaredMethod(methodName), clazz).bindTo(target);
+			MethodHandle handle = lookup.findVirtual(clazz, methodName, MethodType.methodType(void.class))
+					.bindTo(target);
 			return create(handle, FunctionDescriptor.ofVoid());
-		} catch (ReflectiveOperationException e) {
+		} catch (NoSuchMethodException | IllegalAccessException e) {
 			throw new RuntimeException("Failed to create upcall for " + methodName, e);
 		}
 	}
@@ -103,10 +105,10 @@ public final class UpcallStub {
 	public static MemorySegment createVoidDouble(Object target, String methodName, Class<?> clazz) {
 		try {
 			MethodHandles.Lookup lookup = MethodHandles.lookup();
-			MethodHandle handle = lookup.unreflectSpecial(clazz.getDeclaredMethod(methodName, double.class), clazz)
+			MethodHandle handle = lookup.findVirtual(clazz, methodName, MethodType.methodType(void.class, double.class))
 					.bindTo(target);
 			return create(handle, FunctionDescriptor.ofVoid(ValueLayout.JAVA_DOUBLE));
-		} catch (ReflectiveOperationException e) {
+		} catch (NoSuchMethodException | IllegalAccessException e) {
 			throw new RuntimeException("Failed to create upcall for " + methodName, e);
 		}
 	}
@@ -156,10 +158,10 @@ public final class UpcallStub {
 			// converted to a native Variant* pointer by the bridge layer.
 			// For now, we use void return — the actual return conversion happens
 			// in the trampoline dispatcher.
-			java.lang.reflect.Method method = clazz.getDeclaredMethod(methodName);
-			MethodHandle handle = lookup.unreflect(method).bindTo(target);
+			MethodHandle handle = lookup.findVirtual(clazz, methodName, MethodType.methodType(void.class))
+					.bindTo(target);
 			return create(handle, fd);
-		} catch (ReflectiveOperationException e) {
+		} catch (NoSuchMethodException | IllegalAccessException e) {
 			throw new RuntimeException("Failed to create VariantPtr upcall for " + methodName, e);
 		}
 	}
