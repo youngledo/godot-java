@@ -46,5 +46,5 @@ public interface DispatchAccessor {
 			throws Throwable;
 
 	void dispatchVirtual(String godotClassName, String methodName, MemorySegment instance, MemorySegment args,
-			long argCount, MemorySegment ret);
+			MemorySegment ret);
 }

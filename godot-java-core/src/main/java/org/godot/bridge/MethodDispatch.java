@@ -62,7 +62,7 @@ public final class MethodDispatch {
 			MethodHandle mh = MethodHandles.lookup().findStatic(MethodDispatch.class, "callAdapter",
 					MethodType.methodType(void.class, MemorySegment.class, MemorySegment.class, MemorySegment.class,
 							long.class, MemorySegment.class, MemorySegment.class));
-			callStub = Bridge.linker().upcallStub(mh, METHOD_CALL_FD, Bridge.arena());
+			callStub = Bridge.linker().upcallStub(mh, METHOD_CALL_FD, Bridge.ARENA);
 			initialized = true;
 		} catch (Exception e) {
 			throw new RuntimeException("MethodDispatch init failed", e);
@@ -112,7 +112,7 @@ public final class MethodDispatch {
 				for (int i = 0; i < argc; i++) {
 					MemorySegment argPtr = argsSeg.reinterpret(8L * argc).get(ADDRESS, (long) i * 8L);
 					if (!argPtr.equals(MemorySegment.NULL)) {
-						Object raw = VariantUtils.toObject(new Variant(argPtr.reinterpret(24)));
+						Object raw = VariantUtils.toObject(new Variant(argPtr.reinterpret(Variant.SIZE)));
 						javaArgs[i] = raw;
 					}
 				}
@@ -155,7 +155,7 @@ public final class MethodDispatch {
 			MethodHandle mh = MethodHandles.lookup().findStatic(MethodDispatch.class, "ptrcallAdapter",
 					MethodType.methodType(void.class, MemorySegment.class, MemorySegment.class, MemorySegment.class,
 							MemorySegment.class));
-			ptrcallStub = Bridge.linker().upcallStub(mh, METHOD_PTRCALL_FD, Bridge.arena());
+			ptrcallStub = Bridge.linker().upcallStub(mh, METHOD_PTRCALL_FD, Bridge.ARENA);
 		} catch (Exception e) {
 			throw new RuntimeException("MethodDispatch ptrcall init failed", e);
 		}

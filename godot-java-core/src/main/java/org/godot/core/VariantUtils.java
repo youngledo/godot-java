@@ -8,6 +8,7 @@ import org.godot.internal.api.ApiIndex;
 import org.godot.internal.api.VariantType;
 import org.godot.math.*;
 import java.lang.foreign.MemorySegment;
+import java.lang.invoke.MethodHandle;
 import static java.lang.foreign.ValueLayout.ADDRESS;
 import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 import static java.lang.foreign.ValueLayout.JAVA_FLOAT;
@@ -27,6 +28,8 @@ public final class VariantUtils {
 			return Variant.fromNil();
 		if (value instanceof Boolean)
 			return Variant.fromBoolean((Boolean) value);
+		if (value instanceof Rid rid)
+			return Variant.fromRid(rid.id());
 		if (value instanceof Integer || value instanceof Long)
 			return Variant.fromInt(((Number) value).longValue());
 		if (value instanceof Float || value instanceof Double)
@@ -91,10 +94,13 @@ public final class VariantUtils {
 		if (value == null)
 			return;
 		long addr = ret.address();
-		MemorySegment seg = MemorySegment.ofAddress(addr).reinterpret(24);
+		MemorySegment seg = MemorySegment.ofAddress(addr).reinterpret(Variant.SIZE);
 		if (value instanceof Boolean b) {
 			writeUnalignedInt(seg, 0, VariantType.BOOL.id());
 			seg.set(JAVA_BYTE, 8, (byte) (b ? 1 : 0));
+		} else if (value instanceof Rid rid) {
+			writeUnalignedInt(seg, 0, VariantType.RID.id());
+			writeUnalignedLong(seg, 8, rid.id());
 		} else if (value instanceof Integer || value instanceof Long) {
 			writeUnalignedInt(seg, 0, VariantType.INT.id());
 			writeUnalignedLong(seg, 8, ((Number) value).longValue());
@@ -128,7 +134,7 @@ public final class VariantUtils {
 			return null;
 		// Ensure segment is large enough for all variant data types (max 72 bytes for
 		// Projection)
-		MemorySegment seg = variant.getSegment().reinterpret(80);
+		MemorySegment seg = variant.getSegment().reinterpret(Variant.SIZE);
 		if (type == VariantType.BOOL.id())
 			return variant.asBoolean();
 		if (type == VariantType.INT.id())
@@ -201,7 +207,7 @@ public final class VariantUtils {
 			return new org.godot.internal.ref.GenericGodotObject(ptr, "Object");
 		}
 		if (type == VariantType.RID.id())
-			return seg.get(JAVA_LONG, 8);
+			return new Rid(seg.get(JAVA_LONG, 8));
 		if (type == VariantType.CALLABLE.id())
 			return new Callable(null, "");
 		if (type == VariantType.SIGNAL.id()) {
@@ -327,62 +333,98 @@ public final class VariantUtils {
 		return new Quaternion(x, y, z, w);
 	}
 
-	private static AABB readAABB(MemorySegment seg) {
-		float px = Float.intBitsToFloat(seg.get(JAVA_INT, 8));
-		float py = Float.intBitsToFloat(seg.get(JAVA_INT, 12));
-		float pz = Float.intBitsToFloat(seg.get(JAVA_INT, 16));
-		float sx = Float.intBitsToFloat(seg.get(JAVA_INT, 20));
-		float sy = Float.intBitsToFloat(seg.get(JAVA_INT, 24));
-		float sz = Float.intBitsToFloat(seg.get(JAVA_INT, 28));
-		return new AABB(px, py, pz, sx, sy, sz);
-	}
-
-	private static Basis readBasis(MemorySegment seg) {
-		double xx = Float.intBitsToFloat(seg.get(JAVA_INT, 8));
-		double xy = Float.intBitsToFloat(seg.get(JAVA_INT, 12));
-		double xz = Float.intBitsToFloat(seg.get(JAVA_INT, 16));
-		double yx = Float.intBitsToFloat(seg.get(JAVA_INT, 20));
-		double yy = Float.intBitsToFloat(seg.get(JAVA_INT, 24));
-		double yz = Float.intBitsToFloat(seg.get(JAVA_INT, 28));
-		double zx = Float.intBitsToFloat(seg.get(JAVA_INT, 32));
-		double zy = Float.intBitsToFloat(seg.get(JAVA_INT, 36));
-		double zz = Float.intBitsToFloat(seg.get(JAVA_INT, 40));
-		return new Basis(xx, xy, xz, yx, yy, yz, zx, zy, zz);
-	}
-
-	private static Transform3D readTransform3D(MemorySegment seg) {
-		double xx = Float.intBitsToFloat(seg.get(JAVA_INT, 8));
-		double xy = Float.intBitsToFloat(seg.get(JAVA_INT, 12));
-		double xz = Float.intBitsToFloat(seg.get(JAVA_INT, 16));
-		double yx = Float.intBitsToFloat(seg.get(JAVA_INT, 20));
-		double yy = Float.intBitsToFloat(seg.get(JAVA_INT, 24));
-		double yz = Float.intBitsToFloat(seg.get(JAVA_INT, 28));
-		double zx = Float.intBitsToFloat(seg.get(JAVA_INT, 32));
-		double zy = Float.intBitsToFloat(seg.get(JAVA_INT, 36));
-		double zz = Float.intBitsToFloat(seg.get(JAVA_INT, 40));
-		float ox = Float.intBitsToFloat(seg.get(JAVA_INT, 44));
-		float oy = Float.intBitsToFloat(seg.get(JAVA_INT, 48));
-		float oz = Float.intBitsToFloat(seg.get(JAVA_INT, 52));
-		return new Transform3D(new Basis(xx, xy, xz, yx, yy, yz, zx, zy, zz), new Vector3(ox, oy, oz));
-	}
-
-	private static Transform2D readTransform2D(MemorySegment seg) {
-		float x0 = Float.intBitsToFloat(seg.get(JAVA_INT, 8));
-		float y0 = Float.intBitsToFloat(seg.get(JAVA_INT, 12));
-		float x1 = Float.intBitsToFloat(seg.get(JAVA_INT, 16));
-		float y1 = Float.intBitsToFloat(seg.get(JAVA_INT, 20));
-		float ox = Float.intBitsToFloat(seg.get(JAVA_INT, 24));
-		float oy = Float.intBitsToFloat(seg.get(JAVA_INT, 28));
-		return new Transform2D(new Vector2(x0, y0), new Vector2(x1, y1), new Vector2(ox, oy));
-	}
-
-	private static Projection readProjection(MemorySegment seg) {
-		float[] m = new float[16];
-		for (int i = 0; i < 16; i++) {
-			m[i] = Float.intBitsToFloat(seg.get(JAVA_INT, 8 + i * 4));
+	private static AABB readAABB(MemorySegment variantSeg) {
+		MethodHandle ext = Variant.getTypeExtractor(VariantType.AABB.id());
+		if (ext != null) {
+			try {
+				MemorySegment buf = Bridge.allocate(24);
+				ext.invoke(buf, variantSeg);
+				float f0 = buf.get(JAVA_FLOAT, 0);
+				float f1 = buf.get(JAVA_FLOAT, 4);
+				float f2 = buf.get(JAVA_FLOAT, 8);
+				float f3 = buf.get(JAVA_FLOAT, 12);
+				float f4 = buf.get(JAVA_FLOAT, 16);
+				float f5 = buf.get(JAVA_FLOAT, 20);
+				return new AABB(f0, f1, f2, f3, f4, f5);
+			} catch (Throwable ignored) {
+			}
 		}
-		return new Projection(new Vector4(m[0], m[1], m[2], m[3]), new Vector4(m[4], m[5], m[6], m[7]),
-				new Vector4(m[8], m[9], m[10], m[11]), new Vector4(m[12], m[13], m[14], m[15]));
+		return new AABB();
+	}
+
+	private static Basis readBasis(MemorySegment variantSeg) {
+		MethodHandle ext = Variant.getTypeExtractor(VariantType.BASIS.id());
+		if (ext != null) {
+			try {
+				MemorySegment buf = Bridge.allocate(36);
+				ext.invoke(buf, variantSeg);
+				float f0 = buf.get(JAVA_FLOAT, 0);
+				float f1 = buf.get(JAVA_FLOAT, 4);
+				float f2 = buf.get(JAVA_FLOAT, 8);
+				float f3 = buf.get(JAVA_FLOAT, 12);
+				float f4 = buf.get(JAVA_FLOAT, 16);
+				float f5 = buf.get(JAVA_FLOAT, 20);
+				float f6 = buf.get(JAVA_FLOAT, 24);
+				float f7 = buf.get(JAVA_FLOAT, 28);
+				float f8 = buf.get(JAVA_FLOAT, 32);
+				return new Basis(f0, f1, f2, f3, f4, f5, f6, f7, f8);
+			} catch (Throwable ignored) {
+			}
+		}
+		return new Basis();
+	}
+
+	private static Transform3D readTransform3D(MemorySegment variantSeg) {
+		MethodHandle ext = Variant.getTypeExtractor(VariantType.TRANSFORM3D.id());
+		if (ext != null) {
+			try {
+				MemorySegment buf = Bridge.allocate(48);
+				ext.invoke(buf, variantSeg);
+				Basis b = new Basis(buf.get(JAVA_FLOAT, 0), buf.get(JAVA_FLOAT, 4), buf.get(JAVA_FLOAT, 8),
+						buf.get(JAVA_FLOAT, 12), buf.get(JAVA_FLOAT, 16), buf.get(JAVA_FLOAT, 20),
+						buf.get(JAVA_FLOAT, 24), buf.get(JAVA_FLOAT, 28), buf.get(JAVA_FLOAT, 32));
+				Vector3 o = new Vector3(buf.get(JAVA_FLOAT, 36), buf.get(JAVA_FLOAT, 40), buf.get(JAVA_FLOAT, 44));
+				return new Transform3D(b, o);
+			} catch (Throwable ignored) {
+			}
+		}
+		return new Transform3D();
+	}
+
+	private static Transform2D readTransform2D(MemorySegment variantSeg) {
+		MethodHandle ext = Variant.getTypeExtractor(VariantType.TRANSFORM2D.id());
+		if (ext != null) {
+			try {
+				MemorySegment buf = Bridge.allocate(24);
+				ext.invoke(buf, variantSeg);
+				return new Transform2D(new Vector2(buf.get(JAVA_FLOAT, 0), buf.get(JAVA_FLOAT, 4)),
+						new Vector2(buf.get(JAVA_FLOAT, 8), buf.get(JAVA_FLOAT, 12)),
+						new Vector2(buf.get(JAVA_FLOAT, 16), buf.get(JAVA_FLOAT, 20)));
+			} catch (Throwable ignored) {
+			}
+		}
+		return new Transform2D();
+	}
+
+	private static Projection readProjection(MemorySegment variantSeg) {
+		MethodHandle ext = Variant.getTypeExtractor(VariantType.PROJECTION.id());
+		if (ext != null) {
+			try {
+				MemorySegment buf = Bridge.allocate(64);
+				ext.invoke(buf, variantSeg);
+				return new Projection(
+						new Vector4(buf.get(JAVA_FLOAT, 0), buf.get(JAVA_FLOAT, 4), buf.get(JAVA_FLOAT, 8),
+								buf.get(JAVA_FLOAT, 12)),
+						new Vector4(buf.get(JAVA_FLOAT, 16), buf.get(JAVA_FLOAT, 20), buf.get(JAVA_FLOAT, 24),
+								buf.get(JAVA_FLOAT, 28)),
+						new Vector4(buf.get(JAVA_FLOAT, 32), buf.get(JAVA_FLOAT, 36), buf.get(JAVA_FLOAT, 40),
+								buf.get(JAVA_FLOAT, 44)),
+						new Vector4(buf.get(JAVA_FLOAT, 48), buf.get(JAVA_FLOAT, 52), buf.get(JAVA_FLOAT, 56),
+								buf.get(JAVA_FLOAT, 60)));
+			} catch (Throwable ignored) {
+			}
+		}
+		return new Projection();
 	}
 
 	private static byte[] readPackedByteArray(MemorySegment variantSeg) {
@@ -565,15 +607,23 @@ public final class VariantUtils {
 	}
 
 	private static Variant fromTransform2D(Transform2D t) {
-		MemorySegment seg = Bridge.allocVariant();
-		seg.set(JAVA_FLOAT, 8, (float) t.x.x);
-		seg.set(JAVA_FLOAT, 12, (float) t.x.y);
-		seg.set(JAVA_FLOAT, 16, (float) t.y.x);
-		seg.set(JAVA_FLOAT, 20, (float) t.y.y);
-		seg.set(JAVA_FLOAT, 24, (float) t.origin.x);
-		seg.set(JAVA_FLOAT, 28, (float) t.origin.y);
-		seg.set(JAVA_INT, 0, VariantType.TRANSFORM2D.id());
-		return new Variant(seg);
+		MethodHandle ctor = Variant.getTypeConstructor(VariantType.TRANSFORM2D.id());
+		if (ctor != null) {
+			try {
+				MemorySegment buf = Bridge.allocate(24);
+				buf.set(JAVA_FLOAT, 0, (float) t.x.x);
+				buf.set(JAVA_FLOAT, 4, (float) t.x.y);
+				buf.set(JAVA_FLOAT, 8, (float) t.y.x);
+				buf.set(JAVA_FLOAT, 12, (float) t.y.y);
+				buf.set(JAVA_FLOAT, 16, (float) t.origin.x);
+				buf.set(JAVA_FLOAT, 20, (float) t.origin.y);
+				Variant v = Variant.allocate();
+				ctor.invoke(v.getSegment(), buf);
+				return v;
+			} catch (Throwable ignored) {
+			}
+		}
+		return Variant.fromNil();
 	}
 
 	private static Variant fromVector2i(Vector2i v) {
@@ -614,21 +664,29 @@ public final class VariantUtils {
 	}
 
 	private static Variant fromTransform3D(Transform3D t) {
-		MemorySegment seg = Bridge.allocVariant();
-		seg.set(JAVA_FLOAT, 8, (float) t.xx);
-		seg.set(JAVA_FLOAT, 12, (float) t.xy);
-		seg.set(JAVA_FLOAT, 16, (float) t.xz);
-		seg.set(JAVA_FLOAT, 20, (float) t.yx);
-		seg.set(JAVA_FLOAT, 24, (float) t.yy);
-		seg.set(JAVA_FLOAT, 28, (float) t.yz);
-		seg.set(JAVA_FLOAT, 32, (float) t.zx);
-		seg.set(JAVA_FLOAT, 36, (float) t.zy);
-		seg.set(JAVA_FLOAT, 40, (float) t.zz);
-		seg.set(JAVA_FLOAT, 44, (float) t.ox);
-		seg.set(JAVA_FLOAT, 48, (float) t.oy);
-		seg.set(JAVA_FLOAT, 52, (float) t.oz);
-		seg.set(JAVA_INT, 0, VariantType.TRANSFORM3D.id());
-		return new Variant(seg);
+		MethodHandle ctor = Variant.getTypeConstructor(VariantType.TRANSFORM3D.id());
+		if (ctor != null) {
+			try {
+				MemorySegment buf = Bridge.allocate(48);
+				buf.set(JAVA_FLOAT, 0, (float) t.xx);
+				buf.set(JAVA_FLOAT, 4, (float) t.xy);
+				buf.set(JAVA_FLOAT, 8, (float) t.xz);
+				buf.set(JAVA_FLOAT, 12, (float) t.yx);
+				buf.set(JAVA_FLOAT, 16, (float) t.yy);
+				buf.set(JAVA_FLOAT, 20, (float) t.yz);
+				buf.set(JAVA_FLOAT, 24, (float) t.zx);
+				buf.set(JAVA_FLOAT, 28, (float) t.zy);
+				buf.set(JAVA_FLOAT, 32, (float) t.zz);
+				buf.set(JAVA_FLOAT, 36, (float) t.ox);
+				buf.set(JAVA_FLOAT, 40, (float) t.oy);
+				buf.set(JAVA_FLOAT, 44, (float) t.oz);
+				Variant v = Variant.allocate();
+				ctor.invoke(v.getSegment(), buf);
+				return v;
+			} catch (Throwable ignored) {
+			}
+		}
+		return Variant.fromNil();
 	}
 
 	private static Variant fromQuaternion(Quaternion q) {
@@ -651,53 +709,77 @@ public final class VariantUtils {
 		return new Variant(seg);
 	}
 
-	private static Variant fromAABB(AABB a) {
-		MemorySegment seg = Bridge.allocVariant();
-		seg.set(JAVA_FLOAT, 8, (float) a.x);
-		seg.set(JAVA_FLOAT, 12, (float) a.y);
-		seg.set(JAVA_FLOAT, 16, (float) a.z);
-		seg.set(JAVA_FLOAT, 20, (float) a.sizeX);
-		seg.set(JAVA_FLOAT, 24, (float) a.sizeY);
-		seg.set(JAVA_FLOAT, 28, (float) a.sizeZ);
-		seg.set(JAVA_INT, 0, VariantType.AABB.id());
-		return new Variant(seg);
+	private static Variant fromAABB(AABB t) {
+		MethodHandle ctor = Variant.getTypeConstructor(VariantType.AABB.id());
+		if (ctor != null) {
+			try {
+				MemorySegment buf = Bridge.allocate(24);
+				buf.set(JAVA_FLOAT, 0, (float) t.x);
+				buf.set(JAVA_FLOAT, 4, (float) t.y);
+				buf.set(JAVA_FLOAT, 8, (float) t.z);
+				buf.set(JAVA_FLOAT, 12, (float) t.sizeX);
+				buf.set(JAVA_FLOAT, 16, (float) t.sizeY);
+				buf.set(JAVA_FLOAT, 20, (float) t.sizeZ);
+				Variant v = Variant.allocate();
+				ctor.invoke(v.getSegment(), buf);
+				return v;
+			} catch (Throwable ignored) {
+			}
+		}
+		return Variant.fromNil();
 	}
 
-	private static Variant fromBasis(Basis b) {
-		MemorySegment seg = Bridge.allocVariant();
-		seg.set(JAVA_FLOAT, 8, (float) b.xx);
-		seg.set(JAVA_FLOAT, 12, (float) b.xy);
-		seg.set(JAVA_FLOAT, 16, (float) b.xz);
-		seg.set(JAVA_FLOAT, 20, (float) b.yx);
-		seg.set(JAVA_FLOAT, 24, (float) b.yy);
-		seg.set(JAVA_FLOAT, 28, (float) b.yz);
-		seg.set(JAVA_FLOAT, 32, (float) b.zx);
-		seg.set(JAVA_FLOAT, 36, (float) b.zy);
-		seg.set(JAVA_FLOAT, 40, (float) b.zz);
-		seg.set(JAVA_INT, 0, VariantType.BASIS.id());
-		return new Variant(seg);
+	private static Variant fromBasis(Basis t) {
+		MethodHandle ctor = Variant.getTypeConstructor(VariantType.BASIS.id());
+		if (ctor != null) {
+			try {
+				MemorySegment buf = Bridge.allocate(36);
+				buf.set(JAVA_FLOAT, 0, (float) t.xx);
+				buf.set(JAVA_FLOAT, 4, (float) t.xy);
+				buf.set(JAVA_FLOAT, 8, (float) t.xz);
+				buf.set(JAVA_FLOAT, 12, (float) t.yx);
+				buf.set(JAVA_FLOAT, 16, (float) t.yy);
+				buf.set(JAVA_FLOAT, 20, (float) t.yz);
+				buf.set(JAVA_FLOAT, 24, (float) t.zx);
+				buf.set(JAVA_FLOAT, 28, (float) t.zy);
+				buf.set(JAVA_FLOAT, 32, (float) t.zz);
+				Variant v = Variant.allocate();
+				ctor.invoke(v.getSegment(), buf);
+				return v;
+			} catch (Throwable ignored) {
+			}
+		}
+		return Variant.fromNil();
 	}
 
-	private static Variant fromProjection(Projection p) {
-		MemorySegment seg = Bridge.allocVariant();
-		seg.set(JAVA_FLOAT, 8, (float) p.x.x);
-		seg.set(JAVA_FLOAT, 12, (float) p.x.y);
-		seg.set(JAVA_FLOAT, 16, (float) p.x.z);
-		seg.set(JAVA_FLOAT, 20, (float) p.x.w);
-		seg.set(JAVA_FLOAT, 24, (float) p.y.x);
-		seg.set(JAVA_FLOAT, 28, (float) p.y.y);
-		seg.set(JAVA_FLOAT, 32, (float) p.y.z);
-		seg.set(JAVA_FLOAT, 36, (float) p.y.w);
-		seg.set(JAVA_FLOAT, 40, (float) p.z.x);
-		seg.set(JAVA_FLOAT, 44, (float) p.z.y);
-		seg.set(JAVA_FLOAT, 48, (float) p.z.z);
-		seg.set(JAVA_FLOAT, 52, (float) p.z.w);
-		seg.set(JAVA_FLOAT, 56, (float) p.w.x);
-		seg.set(JAVA_FLOAT, 60, (float) p.w.y);
-		seg.set(JAVA_FLOAT, 64, (float) p.w.z);
-		seg.set(JAVA_FLOAT, 68, (float) p.w.w);
-		seg.set(JAVA_INT, 0, VariantType.PROJECTION.id());
-		return new Variant(seg);
+	private static Variant fromProjection(Projection t) {
+		MethodHandle ctor = Variant.getTypeConstructor(VariantType.PROJECTION.id());
+		if (ctor != null) {
+			try {
+				MemorySegment buf = Bridge.allocate(64);
+				buf.set(JAVA_FLOAT, 0, (float) t.x.x);
+				buf.set(JAVA_FLOAT, 4, (float) t.x.y);
+				buf.set(JAVA_FLOAT, 8, (float) t.x.z);
+				buf.set(JAVA_FLOAT, 12, (float) t.x.w);
+				buf.set(JAVA_FLOAT, 16, (float) t.y.x);
+				buf.set(JAVA_FLOAT, 20, (float) t.y.y);
+				buf.set(JAVA_FLOAT, 24, (float) t.y.z);
+				buf.set(JAVA_FLOAT, 28, (float) t.y.w);
+				buf.set(JAVA_FLOAT, 32, (float) t.z.x);
+				buf.set(JAVA_FLOAT, 36, (float) t.z.y);
+				buf.set(JAVA_FLOAT, 40, (float) t.z.z);
+				buf.set(JAVA_FLOAT, 44, (float) t.z.w);
+				buf.set(JAVA_FLOAT, 48, (float) t.w.x);
+				buf.set(JAVA_FLOAT, 52, (float) t.w.y);
+				buf.set(JAVA_FLOAT, 56, (float) t.w.z);
+				buf.set(JAVA_FLOAT, 60, (float) t.w.w);
+				Variant v = Variant.allocate();
+				ctor.invoke(v.getSegment(), buf);
+				return v;
+			} catch (Throwable ignored) {
+			}
+		}
+		return Variant.fromNil();
 	}
 
 	private static Variant fromGodotDictionary(GodotDictionary d) {

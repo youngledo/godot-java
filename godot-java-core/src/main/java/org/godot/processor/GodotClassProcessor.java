@@ -938,11 +938,11 @@ public class GodotClassProcessor extends AbstractProcessor {
 		// --- Virtual dispatch ---
 		if (!classVirtualOverrides.isEmpty()) {
 			w.write("    public void dispatchVirtual(String godotClassName, String methodName,\n");
-			w.write("            MemorySegment instance, MemorySegment args, long argCount, MemorySegment ret) {\n");
+			w.write("            MemorySegment instance, MemorySegment args, MemorySegment ret) {\n");
 			w.write("        switch (godotClassName) {\n");
 			for (Map.Entry<String, List<VirtualOverrideInfo>> e : classVirtualOverrides.entrySet()) {
 				w.write("            case \"" + e.getKey() + "\" -> _dispatch_" + sanitize(e.getKey())
-						+ "_virtual(methodName, instance, args, argCount, ret);\n");
+						+ "_virtual(methodName, instance, args, ret);\n");
 			}
 			w.write("            default -> {}\n");
 			w.write("        }\n");
@@ -953,8 +953,8 @@ public class GodotClassProcessor extends AbstractProcessor {
 				String ownerFQN = getFQN(e.getKey());
 				String classSimpleName = getClassSimpleName(e.getKey());
 				w.write("    private static void _dispatch_" + sanitize(e.getKey()) + "_virtual(String methodName,\n");
-				w.write("            MemorySegment instance, MemorySegment args, long argCount, MemorySegment ret) {\n");
-				w.write("        if (Bridge.isInDowncall()) {\n");
+				w.write("            MemorySegment instance, MemorySegment args, MemorySegment ret) {\n");
+				w.write("        if (Bridge.isInNativeCallback()) {\n");
 				w.write("            if (ret.address() != 0) ret.set(JAVA_INT, 0, 0);\n");
 				w.write("            return;\n");
 				w.write("        }\n");
@@ -965,13 +965,13 @@ public class GodotClassProcessor extends AbstractProcessor {
 
 				for (VirtualOverrideInfo voi : e.getValue()) {
 					w.write("        if (\"" + voi.godotName() + "\".equals(methodName)) {\n");
+					w.write("            try {\n");
 					if (!voi.params().isEmpty()) {
 						for (int i = 0; i < voi.params().size(); i++) {
-							generateVirtualArgRead(w, voi.params().get(i), i);
+							generateVirtualArgRead(w, voi.params().get(i), i, voi.params().size());
 						}
 					}
 					boolean hasReturn = !"void".equals(voi.returnType());
-					w.write("            try {\n");
 					w.write("                ");
 					if (hasReturn) {
 						w.write("Object result = ");
@@ -999,7 +999,7 @@ public class GodotClassProcessor extends AbstractProcessor {
 			}
 		} else {
 			w.write("    public void dispatchVirtual(String godotClassName, String methodName,\n");
-			w.write("            MemorySegment instance, MemorySegment args, long argCount, MemorySegment ret) {\n");
+			w.write("            MemorySegment instance, MemorySegment args, MemorySegment ret) {\n");
 			w.write("        // No virtual overrides\n");
 			w.write("    }\n\n");
 		}
@@ -1107,48 +1107,64 @@ public class GodotClassProcessor extends AbstractProcessor {
 		}
 	}
 
-	private void generateVirtualArgRead(Writer w, ParamTypeInfo param, int index) throws IOException {
+	private void generateVirtualArgRead(Writer w, ParamTypeInfo param, int index, int totalParamCount)
+			throws IOException {
 		String fqn = param.fqn();
 		String category = param.category();
-		// Virtual dispatch args are GDExtensionConstTypePtr* (typed pointer array).
-		// Each p_args[i] points to a raw typed value, NOT a Variant.
-		w.write("            MemorySegment rawPtr" + index + " = MemorySegment.ofAddress(args.address() + (long) "
-				+ index + " * ADDRESS.byteSize())\n");
-		w.write("                .reinterpret(ADDRESS.byteSize()).get(ADDRESS, 0);\n");
+		// Virtual dispatch args are GDExtensionConstTypePtr* (raw typed pointer
+		// array), NOT VariantPtr.
+		// Each p_args[i] points to raw type data (e.g., 8 bytes for double,
+		// pointer for Object). Same layout as ptrcall.
+		w.write("            long dataPtr" + index + " = 0;\n");
+		w.write("            if (args.address() != 0) {\n");
+		w.write("                dataPtr" + index + " = args.reinterpret((long) " + totalParamCount
+				+ " * ADDRESS.byteSize())\n");
+		w.write("                    .get(ADDRESS, (long) " + index + " * ADDRESS.byteSize()).address();\n");
+		w.write("            }\n");
 
 		switch (category) {
-			case "DOUBLE" -> w.write("            double arg" + index + " = !rawPtr" + index
-					+ ".equals(MemorySegment.NULL) ? MemorySegment.ofAddress(rawPtr" + index
-					+ ".address()).reinterpret(8).get(JAVA_DOUBLE, 0) : 0.0;\n");
-			case "FLOAT" -> w.write("            float arg" + index + " = !rawPtr" + index
-					+ ".equals(MemorySegment.NULL) ? MemorySegment.ofAddress(rawPtr" + index
-					+ ".address()).reinterpret(4).get(JAVA_FLOAT, 0) : 0.0f;\n");
-			case "INT" -> w.write("            int arg" + index + " = !rawPtr" + index
-					+ ".equals(MemorySegment.NULL) ? MemorySegment.ofAddress(rawPtr" + index
-					+ ".address()).reinterpret(4).get(JAVA_INT, 0) : 0;\n");
-			case "LONG" -> w.write("            long arg" + index + " = !rawPtr" + index
-					+ ".equals(MemorySegment.NULL) ? MemorySegment.ofAddress(rawPtr" + index
-					+ ".address()).reinterpret(8).get(JAVA_LONG, 0) : 0L;\n");
-			case "BOOLEAN" -> w.write("            boolean arg" + index + " = !rawPtr" + index
-					+ ".equals(MemorySegment.NULL) && MemorySegment.ofAddress(rawPtr" + index
-					+ ".address()).reinterpret(1).get(JAVA_BYTE, 0) != 0;\n");
-			case "STRING" -> w.write("            String arg" + index + " = !rawPtr" + index
-					+ ".equals(MemorySegment.NULL) ? new GodotString(MemorySegment.ofAddress(rawPtr" + index
-					+ ".address())).toJavaString() : null;\n");
+			case "DOUBLE" -> {
+				w.write("            double arg" + index + " = dataPtr" + index
+						+ " != 0 ? MemorySegment.ofAddress(dataPtr" + index
+						+ ").reinterpret(8).get(JAVA_DOUBLE, 0) : 0.0;\n");
+			}
+			case "FLOAT" -> {
+				w.write("            float arg" + index + " = dataPtr" + index
+						+ " != 0 ? MemorySegment.ofAddress(dataPtr" + index
+						+ ").reinterpret(4).get(JAVA_FLOAT, 0) : 0.0f;\n");
+			}
+			case "INT" -> {
+				w.write("            int arg" + index + " = dataPtr" + index + " != 0 ? MemorySegment.ofAddress(dataPtr"
+						+ index + ").reinterpret(4).get(JAVA_INT, 0) : 0;\n");
+			}
+			case "LONG" -> {
+				w.write("            long arg" + index + " = dataPtr" + index
+						+ " != 0 ? MemorySegment.ofAddress(dataPtr" + index
+						+ ").reinterpret(8).get(JAVA_LONG, 0) : 0L;\n");
+			}
+			case "BOOLEAN" -> {
+				w.write("            boolean arg" + index + " = dataPtr" + index
+						+ " != 0 && MemorySegment.ofAddress(dataPtr" + index
+						+ ").reinterpret(1).get(JAVA_BYTE, 0) != 0;\n");
+			}
+			case "STRING" -> {
+				w.write("            String arg" + index + " = dataPtr" + index
+						+ " != 0 ? new GodotString(MemorySegment.ofAddress(dataPtr" + index
+						+ ")).toJavaString() : null;\n");
+			}
 			case "GODOT_OBJECT" -> {
-				w.write("            " + fqn + " arg" + index + " = null;\n");
-				w.write("            if (!rawPtr" + index + ".equals(MemorySegment.NULL)) {\n");
-				w.write("                long objAddr" + index + " = rawPtr" + index
-						+ ".reinterpret(ADDRESS.byteSize()).get(ADDRESS, 0).address();\n");
-				w.write("                if (objAddr" + index + " != 0) arg" + index + " = (" + fqn
-						+ ") VariantUtils.toObject(Variant.fromObjectPtr(objAddr" + index + "));\n");
-				w.write("            }\n");
+				w.write("            long objPtr" + index + " = dataPtr" + index
+						+ " != 0 ? MemorySegment.ofAddress(dataPtr" + index
+						+ ").reinterpret(ADDRESS.byteSize()).get(JAVA_LONG, 0) : 0L;\n");
+				w.write("            " + fqn + " arg" + index + " = objPtr" + index + " != 0 ? (" + fqn
+						+ ") VariantUtils.toObject(Variant.fromObjectPtr(objPtr" + index + ")) : null;\n");
 			}
 			default -> {
-				// Fallback: treat as Variant for unknown types
-				w.write("            " + fqn + " arg" + index + " = !rawPtr" + index + ".equals(MemorySegment.NULL) ? ("
-						+ fqn + ") VariantUtils.toObject(new Variant(MemorySegment.ofAddress(rawPtr" + index
-						+ ".address()).reinterpret(24))) : null;\n");
+				w.write("            long objPtr" + index + " = dataPtr" + index
+						+ " != 0 ? MemorySegment.ofAddress(dataPtr" + index
+						+ ").reinterpret(ADDRESS.byteSize()).get(JAVA_LONG, 0) : 0L;\n");
+				w.write("            " + fqn + " arg" + index + " = objPtr" + index + " != 0 ? (" + fqn
+						+ ") VariantUtils.toObject(Variant.fromObjectPtr(objPtr" + index + ")) : null;\n");
 			}
 		}
 	}

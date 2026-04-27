@@ -9,6 +9,8 @@ import java.lang.foreign.FunctionDescriptor;
 import java.lang.foreign.Linker;
 import java.lang.foreign.MemorySegment;
 import java.lang.invoke.MethodHandle;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.Map;
 import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 import static java.lang.foreign.ValueLayout.JAVA_INT;
 import static java.lang.foreign.ValueLayout.JAVA_LONG;
@@ -26,10 +28,13 @@ public final class Variant {
 
 	private static final Logger logger = LogManager.getLogger(Variant.class);
 
-	/** Size of a Godot Variant in bytes. */
+	/**
+	 * Size of a Godot Variant in bytes. GDExtension uses 24-byte opaque Variant.
+	 * Larger types (Transform3D, Projection) must use VARIANT_NEW_COPY.
+	 */
 	public static final long SIZE = 24;
 
-	/** Native memory segment pointing to the Variant (24 bytes). */
+	/** Native memory segment pointing to the Variant. */
 	private final MemorySegment segment;
 
 	// Cached constructor functions for creating typed Variants
@@ -37,6 +42,42 @@ public final class Variant {
 	private static volatile MethodHandle stringNameConstructor;
 	private static volatile MethodHandle objectConstructor;
 	private static volatile boolean constructorsInitialized = false;
+
+	// Lazy-loaded type constructors/extractors for types that don't fit in 24 bytes
+	private static final Map<Integer, MethodHandle> FROM_TYPE_CTORS = new ConcurrentHashMap<>();
+	private static final Map<Integer, MethodHandle> TO_TYPE_CTORS = new ConcurrentHashMap<>();
+	private static final FunctionDescriptor TYPE_CTOR_DESC = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS);
+
+	/** Get a variant-from-type constructor for the given VariantType ID. */
+	public static MethodHandle getTypeConstructor(int typeId) {
+		return FROM_TYPE_CTORS.computeIfAbsent(typeId, id -> {
+			try {
+				MemorySegment ptr = (MemorySegment) Bridge.getAPI(ApiIndex.GET_VARIANT_FROM_TYPE_CONSTRUCTOR)
+						.invoke(id);
+				if (ptr.address() != 0) {
+					return Linker.nativeLinker().downcallHandle(ptr, TYPE_CTOR_DESC);
+				}
+			} catch (Throwable t) {
+				logger.error("Failed to get variant_from_type constructor for type {}", id, t);
+			}
+			return null;
+		});
+	}
+
+	/** Get a type-from-variant extractor for the given VariantType ID. */
+	public static MethodHandle getTypeExtractor(int typeId) {
+		return TO_TYPE_CTORS.computeIfAbsent(typeId, id -> {
+			try {
+				MemorySegment ptr = (MemorySegment) Bridge.getAPI(ApiIndex.GET_VARIANT_TO_TYPE_CONSTRUCTOR).invoke(id);
+				if (ptr.address() != 0) {
+					return Linker.nativeLinker().downcallHandle(ptr, TYPE_CTOR_DESC);
+				}
+			} catch (Throwable t) {
+				logger.error("Failed to get variant_to_type extractor for type {}", id, t);
+			}
+			return null;
+		});
+	}
 
 	/** Initialize type constructors. Must be called after Bridge.load(). */
 	public static synchronized void initConstructors() {
@@ -119,6 +160,13 @@ public final class Variant {
 		Variant v = allocate();
 		v.segment.set(JAVA_INT, 0, VariantType.FLOAT.id());
 		v.segment.set(JAVA_DOUBLE, 8, value);
+		return v;
+	}
+
+	public static Variant fromRid(long id) {
+		Variant v = allocate();
+		v.segment.set(JAVA_INT, 0, VariantType.RID.id());
+		v.segment.set(JAVA_LONG, 8, id);
 		return v;
 	}
 

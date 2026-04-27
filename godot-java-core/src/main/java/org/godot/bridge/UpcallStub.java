@@ -63,7 +63,7 @@ public final class UpcallStub {
 	 * @return MemorySegment containing the native function pointer
 	 */
 	public static MemorySegment create(MethodHandle handle, FunctionDescriptor desc) {
-		MemorySegment stub = LINKER.upcallStub(handle, desc, Bridge.arena());
+		MemorySegment stub = LINKER.upcallStub(handle, desc, Bridge.ARENA);
 		LIVE_STUBS.put(stub, stub);
 		return stub;
 	}

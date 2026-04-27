@@ -34,4 +34,16 @@
         <Class name="org.godot.internal.api.VirtualMethods"/>
         <Bug pattern="MS_MUTABLE_ARRAY"/>
     </Match>
+
+    <!-- Singletons intentionally share simple names with their codegen base classes -->
+    <Match>
+        <Package name="org.godot.singleton"/>
+        <Bug pattern="NM_SAME_SIMPLE_NAME_AS_SUPERCLASS"/>
+    </Match>
+
+    <!-- APT-generated registry is large by design -->
+    <Match>
+        <Class name="org.godot.internal.GodotClassRegistry"/>
+        <Bug pattern="SKIPPED_CLASS_TOO_BIG"/>
+    </Match>
 </FindBugsFilter>

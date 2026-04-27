@@ -104,8 +104,8 @@ public final class Dispatch {
 	}
 
 	public static void dispatchVirtual(String className, String methodName, MemorySegment instance, MemorySegment args,
-			long argCount, MemorySegment ret) {
-		accessor.dispatchVirtual(className, methodName, instance, args, argCount, ret);
+			MemorySegment ret) {
+		accessor.dispatchVirtual(className, methodName, instance, args, ret);
 	}
 
 	private Dispatch() {
@@ -194,7 +194,7 @@ public final class Dispatch {
 		}
 
 		@Override
-		public void dispatchVirtual(String c, String m, MemorySegment i, MemorySegment a, long ac, MemorySegment r) {
+		public void dispatchVirtual(String c, String m, MemorySegment i, MemorySegment a, MemorySegment r) {
 		}
 	}
 }

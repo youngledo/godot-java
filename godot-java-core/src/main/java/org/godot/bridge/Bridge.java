@@ -8,6 +8,7 @@ import java.lang.invoke.MethodHandle;
 
 import org.godot.internal.ThreadChecker;
 import org.godot.internal.api.ApiIndex;
+import org.godot.core.Variant;
 
 /**
  * Central Panama FFI bridge to all 176 Godot C API functions.
@@ -53,6 +54,12 @@ public final class Bridge {
 	 * detect re-entrant upcalls that would crash Panama FFI.
 	 */
 	private static final ScopedValue<Boolean> IN_DOWNCALL = ScopedValue.newInstance();
+
+	/**
+	 * Tracks whether the current thread is inside a Godot→Java upcall. Nested
+	 * upcalls during an active upcall will crash Panama FFI's upcall linker.
+	 */
+	private static final ScopedValue<Boolean> IN_UPCALL = ScopedValue.newInstance();
 
 	/**
 	 * Scoped value for call-path temporary arenas. When bound (via
@@ -174,11 +181,11 @@ public final class Bridge {
 	}
 
 	/**
-	 * Allocate a Godot Variant (24 bytes, 8-byte aligned) from the active arena.
+	 * Allocate a Godot Variant from the active arena.
 	 */
 	public static MemorySegment allocVariant() {
-		org.godot.internal.NativeMemoryTracker.onAllocate(24);
-		return arena().allocate(24, 8);
+		org.godot.internal.NativeMemoryTracker.onAllocate((int) Variant.SIZE);
+		return arena().allocate(Variant.SIZE, 8);
 	}
 
 	/**
@@ -260,6 +267,32 @@ public final class Bridge {
 	 */
 	public static boolean isInDowncall() {
 		return IN_DOWNCALL.orElse(false);
+	}
+
+	/**
+	 * Whether the current thread is inside a Godot→Java upcall. When true, any
+	 * nested upcall triggered by a downcall must be discarded to prevent Panama FFI
+	 * crash ("wrong thread state for upcall").
+	 */
+	public static boolean isInUpcall() {
+		return IN_UPCALL.orElse(false);
+	}
+
+	/**
+	 * Whether nested upcalls must be discarded — true during either downcall or
+	 * upcall processing.
+	 */
+	public static boolean isInNativeCallback() {
+		return IN_DOWNCALL.orElse(false) || IN_UPCALL.orElse(false);
+	}
+
+	/**
+	 * Execute a Godot→Java upcall with nested-upcall protection. Binds IN_UPCALL so
+	 * any nested upcall triggered by a downcall within this upcall is safely
+	 * discarded.
+	 */
+	public static void runUpcall(Runnable upcall) {
+		ScopedValue.where(IN_UPCALL, true).run(upcall);
 	}
 
 	/**

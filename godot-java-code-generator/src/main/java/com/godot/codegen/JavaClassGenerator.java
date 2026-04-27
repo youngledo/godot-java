@@ -196,6 +196,14 @@ public class JavaClassGenerator {
 				continue;
 			}
 
+			// Skip call/call_deferred - Godot.call() already handles dynamic
+			// dispatch; generating a wrapper intercepts single-arg call("method")
+			// away from Godot.call(String, Object...) into the broken vararg
+			// method bind path
+			if (method.name().equals("call") || method.name().equals("call_deferred")) {
+				continue;
+			}
+
 			// Skip setter methods (handled by properties)
 			if (method.name().startsWith("set_") && method.arguments().size() == 1) {
 				continue;

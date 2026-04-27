@@ -66,7 +66,7 @@ public final class CallableDispatch {
 			MethodHandle mh = MethodHandles.lookup().findStatic(CallableDispatch.class, "callAdapter",
 					MethodType.methodType(void.class, MemorySegment.class, MemorySegment.class, long.class,
 							MemorySegment.class, MemorySegment.class));
-			callStub = Bridge.linker().upcallStub(mh, CALLABLE_CALL_FD, Bridge.arena());
+			callStub = Bridge.linker().upcallStub(mh, CALLABLE_CALL_FD, Bridge.ARENA);
 			initialized = true;
 		} catch (Exception e) {
 			throw new RuntimeException("CallableDispatch init failed", e);
@@ -133,8 +133,9 @@ public final class CallableDispatch {
 	 */
 	static void callAdapter(MemorySegment userdataSeg, MemorySegment argsSeg, long argCount, MemorySegment retSeg,
 			MemorySegment errorSeg) {
-		// Discard re-entrant upcall during downcall — native pointers are ephemeral
-		if (Bridge.isInDowncall()) {
+		// Discard re-entrant upcall during downcall or nested upcall — native pointers
+		// are ephemeral
+		if (Bridge.isInNativeCallback()) {
 			// Use byte-level write to avoid downcall
 			writeNilVariant(retSeg);
 			setError(errorSeg, ERROR_OK);
@@ -146,7 +147,7 @@ public final class CallableDispatch {
 			long key = userdataSeg.address();
 			CallableEntry entry = CALLABLES.get(key);
 			if (entry == null) {
-				logger.error("CallableDispatch: no callable for key 0x{}", Long.toHexString(key));
+				writeNilVariant(retSeg);
 				setError(errorSeg, ERROR_INVALID_ARGUMENT);
 				return;
 			}
@@ -154,7 +155,7 @@ public final class CallableDispatch {
 			// Get Java object from stored object ID
 			Godot obj = JavaObjectMap.get(entry.objectPtr());
 			if (obj == null) {
-				logger.error("CallableDispatch: no object for ptr 0x{}", Long.toHexString(entry.objectPtr()));
+				writeNilVariant(retSeg);
 				setError(errorSeg, ERROR_INVALID_ARGUMENT);
 				return;
 			}
@@ -162,7 +163,7 @@ public final class CallableDispatch {
 			// Resolve the Godot class name for dispatch
 			String godotClassName = Dispatch.getGodotClassName(obj.getClass().getName());
 			if (godotClassName == null || godotClassName.isEmpty()) {
-				logger.error("CallableDispatch: cannot resolve Godot class name for {}", obj.getClass().getName());
+				writeNilVariant(retSeg);
 				setError(errorSeg, ERROR_INVALID_ARGUMENT);
 				return;
 			}
@@ -171,10 +172,14 @@ public final class CallableDispatch {
 			int argc = (int) argCount;
 			Object[] javaArgs = new Object[argc];
 			for (int i = 0; i < argc; i++) {
-				// args is actually an array of Variant pointers: p_args[i]
-				MemorySegment argPtr = argsSeg.reinterpret(8L * argc).get(ADDRESS, (long) i * 8L);
-				if (!argPtr.equals(MemorySegment.NULL)) {
-					javaArgs[i] = VariantUtils.toObject(new Variant(argPtr.reinterpret(24)));
+				try {
+					MemorySegment argPtr = argsSeg.reinterpret(8L * Math.max(argc, 1)).get(ADDRESS, (long) i * 8L);
+					if (argPtr != null && !argPtr.equals(MemorySegment.NULL)) {
+						javaArgs[i] = VariantUtils.toObject(new Variant(argPtr.reinterpret(Variant.SIZE)));
+					}
+				} catch (Exception e) {
+					// Arg pointer may be invalid during scene transitions
+					javaArgs[i] = null;
 				}
 			}
 
@@ -191,19 +196,25 @@ public final class CallableDispatch {
 			// Dispatch via Dispatch facade (zero-reflection path)
 			Object result = Dispatch.dispatchVariantCall(godotClassName, entry.methodName, obj, argsToInvoke);
 
-			// Set return value
+			// Set return value — avoid downcalls in return path
 			if (result != null) {
-				org.godot.core.VariantUtils.writeVariantFromObject(retSeg, result);
+				try {
+					org.godot.core.VariantUtils.writeVariantFromObject(retSeg, result);
+				} catch (Exception e) {
+					writeNilVariant(retSeg);
+				}
 			} else {
-				// For void methods, write nil via byte-level copy from a pre-allocated nil
-				// Variant
 				writeNilVariant(retSeg);
 			}
 
 			setError(errorSeg, ERROR_OK);
 		} catch (Throwable t) {
-			logger.error("CallableDispatch error", t);
-			setError(errorSeg, ERROR_INVALID_ARGUMENT);
+			try {
+				writeNilVariant(retSeg);
+				setError(errorSeg, ERROR_INVALID_ARGUMENT);
+			} catch (Exception e) {
+				// Best effort — avoid triggering further errors
+			}
 		}
 	}
 
@@ -220,10 +231,10 @@ public final class CallableDispatch {
 	 * template. Uses byte-level writes to avoid downcall from upcall context.
 	 */
 	private static void writeNilVariant(MemorySegment retSeg) {
-		// NIL Variant: type=0, padding=0, data=0 (all zeros for 24 bytes)
-		// Only type needs to be written explicitly (data is already zero from Godot's
-		// init)
-		retSeg.set(JAVA_INT, 0, 0); // VariantType.NIL = 0
+		MemorySegment seg = retSeg.reinterpret(Variant.SIZE);
+		seg.set(JAVA_LONG, 0, 0L);
+		seg.set(JAVA_LONG, 8, 0L);
+		seg.set(JAVA_LONG, 16, 0L);
 	}
 
 	private static class CallableEntry {

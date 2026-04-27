@@ -332,6 +332,11 @@ public final class InstanceCallbacks {
 
 	/** Panama adapter for notification_func: void(ADDRESS, JAVA_INT, JAVA_BYTE) */
 	private static void notificationAdapter(MemorySegment instanceSeg, int what, byte reversed) {
+		// Guard against re-entrant upcall — prevents JVM crash when Godot's
+		// crash handler sends notifications during an existing upcall
+		if (Bridge.isInNativeCallback()) {
+			return;
+		}
 		notificationFunc(instanceSeg.address(), what, reversed);
 	}
 
@@ -498,8 +503,8 @@ public final class InstanceCallbacks {
 	 */
 	static void freePropertyListFunc(long instancePtr, long listPtr, int count) {
 		String className = null;
-		Object obj = JavaObjectMap.get(instancePtr);
-		if (obj instanceof Godot godotObj) {
+		Godot godotObj = JavaObjectMap.get(instancePtr);
+		if (godotObj != null) {
 			className = resolveGodotClassName(godotObj);
 		}
 		if (className != null) {
@@ -673,6 +678,14 @@ public final class InstanceCallbacks {
 	}
 
 	/**
+	 * Look up the Godot class name from a class_userdata pointer address. Used by
+	 * VirtualDispatch to resolve class identity from the opaque userdata.
+	 */
+	public static String lookupClassName(long userdataAddr) {
+		return USERDATA_TO_CLASS_NAME.get(userdataAddr);
+	}
+
+	/**
 	 * Create and return a native GDExtensionClassCreationInfo4 struct for the given
 	 * class.
 	 *
@@ -753,11 +766,20 @@ public final class InstanceCallbacks {
 			info.set(ADDRESS, StructOffsets.CREATION_INFO4_OFF_GET_FUNC, MemorySegment.ofAddress(getStub.address()));
 		}
 
-		// Field 20: get_virtual_func = per-class upcall stub for virtual method
-		// dispatch
-		MemorySegment getVirtualStub = VirtualDispatch.getGetVirtualFuncStubForClass(godotClassName);
-		info.set(ADDRESS, StructOffsets.CREATION_INFO4_OFF_GET_VIRTUAL_FUNC,
-				MemorySegment.ofAddress(getVirtualStub.address()));
+		// Virtual method dispatch: register class dispatch data and wire up
+		// two-phase API (Godot 4.6+)
+		VirtualDispatch.registerClassDispatchData(godotClassName);
+
+		// Deprecated get_virtual_func (offset 128) — set to NULL, use new API
+		info.set(ADDRESS, StructOffsets.CREATION_INFO4_OFF_GET_VIRTUAL_FUNC, MemorySegment.ofAddress(0));
+
+		// get_virtual_call_data_func (offset 136) — phase 1: returns userdata
+		info.set(ADDRESS, StructOffsets.CREATION_INFO4_OFF_GET_VIRTUAL_CALL_DATA_FUNC,
+				VirtualDispatch.getVirtualCallDataStub());
+
+		// call_virtual_with_data_func (offset 144) — phase 2: dispatches call
+		info.set(ADDRESS, StructOffsets.CREATION_INFO4_OFF_CALL_VIRTUAL_WITH_DATA_FUNC,
+				VirtualDispatch.callVirtualWithDataStub());
 
 		// validate_property_func — basic validation pass-through (always accepts)
 		FunctionDescriptor validatePropFd = FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS);

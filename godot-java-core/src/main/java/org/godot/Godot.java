@@ -14,41 +14,12 @@ import java.lang.foreign.MemorySegment;
 import static java.lang.foreign.ValueLayout.JAVA_INT;
 import static java.lang.foreign.ValueLayout.ADDRESS;
 
-/**
- * Abstract root of the entire Godot object hierarchy.
- *
- * <p>
- * All generated engine classes extend this directly or transitively:
- *
- * <pre>
- * Godot (abstract)
- *   Object (generated)
- *     Node (generated)
- *       Node2D (generated)
- *       Node3D (generated)
- *       ...
- *     RefCounted (generated)
- *       Resource (generated)
- *       ...
- * </pre>
- *
- * <p>
- * Method hash resolution uses virtual dispatch (super call chain), NOT
- * reflection. This ensures:
- * <ul>
- * <li>Zero reflection overhead on the hot call path</li>
- * <li>Full GraalVM native-image compatibility without reflection config</li>
- * <li>JIT-friendly: tiny methods that inline and devirtualize naturally</li>
- * </ul>
- */
 public abstract class Godot {
 
 	private static final Logger logger = LogManager.getLogger(Godot.class);
 
-	/** Native Godot object pointer (0 if null/invalid). */
 	protected volatile long nativeObject;
 
-	/** Whether this wrapper is still valid. */
 	private volatile boolean valid = true;
 
 	protected Godot(long nativeObject) {
@@ -62,10 +33,6 @@ public abstract class Godot {
 	protected Godot() {
 		this.nativeObject = 0;
 	}
-
-	// ----------------------------------------------------------------
-	// Native object management
-	// ----------------------------------------------------------------
 
 	public long getPtr() {
 		return nativeObject;
@@ -95,12 +62,9 @@ public abstract class Godot {
 	}
 
 	// ----------------------------------------------------------------
-	// Method hash resolution — zero reflection via super call chain
+	// Method hash resolution
 	// ----------------------------------------------------------------
 
-	/**
-	 * Result of method hash lookup.
-	 */
 	public static final class HashResult {
 		static final HashResult NOT_FOUND = new HashResult(0, null);
 		public final long hash;
@@ -116,32 +80,10 @@ public abstract class Godot {
 		}
 	}
 
-	/**
-	 * Resolve a method hash by checking this class's METHOD_HASHES, then delegating
-	 * to super. Every generated class overrides this.
-	 *
-	 * <p>
-	 * The super call chain naturally walks the Godot class hierarchy:
-	 *
-	 * <pre>
-	 * CharacterBody3D.resolveMethodHash("move_and_slide")
-	 *   → found in CharacterBody3D.METHOD_HASHES → return
-	 *
-	 * CharacterBody3D.resolveMethodHash("get_class")
-	 *   → not in CharacterBody3D → super → PhysicsBody3D → ... → Object
-	 *   → found in Object.METHOD_HASHES → return
-	 * </pre>
-	 *
-	 * <p>
-	 * User classes inherit this from their generated parent — no override needed.
-	 */
 	protected HashResult resolveMethodHash(String methodName) {
 		return HashResult.NOT_FOUND;
 	}
 
-	/**
-	 * Get the Godot class name for this object. Generated classes override this.
-	 */
 	protected String getGodotClassName() {
 		return null;
 	}
@@ -150,10 +92,6 @@ public abstract class Godot {
 	// Method call
 	// ----------------------------------------------------------------
 
-	/**
-	 * Call a Godot method by name. Uses resolveMethodHash() for hash lookup (zero
-	 * reflection) and OBJECT_METHOD_BIND_CALL for variant dispatch.
-	 */
 	public java.lang.Object call(String methodName, java.lang.Object... args) {
 		checkValid();
 
@@ -163,21 +101,6 @@ public abstract class Godot {
 		}
 
 		return Bridge.runDowncall(() -> Bridge.runScoped(() -> {
-			HashResult hashResult = resolveMethodHash(methodName);
-			if (!hashResult.isFound()) {
-				throw new RuntimeException(
-						"Method hash not found: " + methodName + " on " + getClass().getSimpleName());
-			}
-
-			GodotStringName methodSn = GodotStringName.fromJavaString(methodName);
-			GodotStringName classNameSn = GodotStringName.fromJavaString(hashResult.className);
-			long methodBindAddr = Bridge.callPtr2S1L(ApiIndex.CLASSDB_GET_METHOD_BIND, classNameSn.segment(),
-					methodSn.segment(), hashResult.hash).address();
-
-			if (methodBindAddr == 0) {
-				throw new RuntimeException("Method bind not found: " + methodName + " on " + hashResult.className);
-			}
-
 			int argc = args.length;
 			MemorySegment argPtrs;
 			MemorySegment[] argVarSegments = new MemorySegment[argc];
@@ -196,8 +119,26 @@ public abstract class Godot {
 				MemorySegment resultVar = Bridge.allocVariant();
 				MemorySegment errorVar = Bridge.allocate(4 * 4);
 
-				Bridge.callVoid(ApiIndex.OBJECT_METHOD_BIND_CALL, MemorySegment.ofAddress(methodBindAddr),
-						MemorySegment.ofAddress(nativeObject), argPtrs, (long) argc, resultVar, errorVar);
+				HashResult hashResult = resolveMethodHash(methodName);
+				if (hashResult.isFound()) {
+					GodotStringName methodSn = GodotStringName.fromJavaString(methodName);
+					GodotStringName classNameSn = GodotStringName.fromJavaString(hashResult.className);
+					long methodBindAddr = Bridge.callPtr2S1L(ApiIndex.CLASSDB_GET_METHOD_BIND, classNameSn.segment(),
+							methodSn.segment(), hashResult.hash).address();
+
+					if (methodBindAddr == 0) {
+						throw new RuntimeException(
+								"Method bind not found: " + methodName + " on " + hashResult.className);
+					}
+
+					Bridge.callVoid(ApiIndex.OBJECT_METHOD_BIND_CALL, MemorySegment.ofAddress(methodBindAddr),
+							MemorySegment.ofAddress(nativeObject), argPtrs, (long) argc, resultVar, errorVar);
+				} else {
+					// Fallback for GDScript/user-defined methods
+					GodotStringName methodSn = GodotStringName.fromJavaString(methodName);
+					Bridge.callVoid(ApiIndex.OBJECT_CALL_SCRIPT_METHOD, MemorySegment.ofAddress(nativeObject),
+							methodSn.segment(), argPtrs, (long) argc, resultVar, errorVar);
+				}
 
 				int errorCode = errorVar.get(JAVA_INT, 0);
 				if (errorCode != 0) {
@@ -223,10 +164,6 @@ public abstract class Godot {
 	// Signal emission
 	// ----------------------------------------------------------------
 
-	/**
-	 * Emit a signal on this object. Uses resolveMethodHash() to find
-	 * Object.emit_signal hash (zero reflection).
-	 */
 	public int emitSignal(String signalName, java.lang.Object... args) {
 		checkValid();
 
@@ -295,7 +232,7 @@ public abstract class Godot {
 	}
 
 	// ----------------------------------------------------------------
-	// Virtual lifecycle methods (override in subclasses)
+	// Virtual lifecycle methods
 	// ----------------------------------------------------------------
 
 	public void _ready() {
