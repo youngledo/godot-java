@@ -955,7 +955,7 @@ public class GodotClassProcessor extends AbstractProcessor {
 				w.write("    private static void _dispatch_" + sanitize(e.getKey()) + "_virtual(String methodName,\n");
 				w.write("            MemorySegment instance, MemorySegment args, MemorySegment ret) {\n");
 				w.write("        if (Bridge.isInNativeCallback()) {\n");
-				w.write("            if (ret.address() != 0) ret.set(JAVA_INT, 0, 0);\n");
+				w.write("            if (ret.address() != 0) { MemorySegment rs = MemorySegment.ofAddress(ret.address()).reinterpret(24); for (long i = 0; i < 24; i++) rs.set(JAVA_BYTE, i, (byte)0); }\n");
 				w.write("            return;\n");
 				w.write("        }\n");
 				w.write("        long instanceAddr = instance.address();\n");

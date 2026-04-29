@@ -227,22 +227,17 @@ public final class Variant {
 		GodotString godotString = GodotString.fromJavaString(javaString);
 		MemorySegment strBuf = godotString.buffer();
 
-		if (stringConstructor != null) {
-			try {
-				Variant v = allocate();
-				// Use GDExtension's proper constructor: void(Variant*, String*)
-				stringConstructor.invoke(v.getSegment(), strBuf);
-				return v;
-			} catch (Throwable t) {
-				// Fall through to manual construction
-			}
+		if (stringConstructor == null) {
+			throw new org.godot.exception.GodotException(
+					"stringConstructor is null — cannot create String Variant without GDExtension type constructor");
 		}
-
-		// Fallback: manual construction
-		Variant v = allocate();
-		v.segment.set(JAVA_LONG, 0, godotString.buffer().get(JAVA_LONG, 0));
-		v.segment.set(JAVA_INT, 8, VariantType.STRING.id());
-		return v;
+		try {
+			Variant v = allocate();
+			stringConstructor.invoke(v.getSegment(), strBuf);
+			return v;
+		} catch (Throwable t) {
+			throw new org.godot.exception.GodotException("stringConstructor.invoke failed", t);
+		}
 	}
 
 	/**
@@ -262,6 +257,52 @@ public final class Variant {
 		v.segment.set(JAVA_INT, 0, VariantType.STRING_NAME.id());
 		v.segment.set(ADDRESS, 8, sn.segment());
 		return v;
+	}
+
+	/** Create a String Variant directly into a pre-allocated slot. */
+	public static void fromStringInto(String javaString, MemorySegment target) {
+		GodotString godotString = GodotString.fromJavaString(javaString);
+		if (stringConstructor != null) {
+			try {
+				stringConstructor.invoke(target, godotString.buffer());
+				return;
+			} catch (Throwable t) {
+			}
+		}
+		// Safe fallback: create proper Variant and copy
+		Variant v = fromString(javaString);
+		Bridge.callVoid(org.godot.internal.api.ApiIndex.VARIANT_NEW_COPY, target, v.getSegment());
+		Bridge.destroyVariant(v.getSegment());
+	}
+
+	/** Create a StringName Variant directly into a pre-allocated slot. */
+	public static void fromStringNameInto(GodotStringName sn, MemorySegment target) {
+		if (stringNameConstructor != null) {
+			try {
+				stringNameConstructor.invoke(target, sn.segment());
+				return;
+			} catch (Throwable t) {
+			}
+		}
+		// Safe fallback: create proper Variant and copy to avoid ref count corruption
+		Variant v = fromStringName(sn);
+		Bridge.callVoid(org.godot.internal.api.ApiIndex.VARIANT_NEW_COPY, target, v.getSegment());
+		Bridge.destroyVariant(v.getSegment());
+	}
+
+	/** Create an Object Variant directly into a pre-allocated slot. */
+	public static void fromObjectPtrInto(long objectPtr, MemorySegment target) {
+		if (objectConstructor != null) {
+			try {
+				MemorySegment ptrBuf = Bridge.allocate(8);
+				ptrBuf.set(JAVA_LONG, 0, objectPtr);
+				objectConstructor.invoke(target, ptrBuf);
+				return;
+			} catch (Throwable t) {
+			}
+		}
+		target.set(JAVA_INT, 0, VariantType.OBJECT.id());
+		target.set(JAVA_LONG, 8, objectPtr);
 	}
 
 	/** Convert this Variant to a Java String. */

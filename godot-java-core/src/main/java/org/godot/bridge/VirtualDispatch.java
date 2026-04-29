@@ -3,6 +3,7 @@ package org.godot.bridge;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.godot.Godot;
+import org.godot.core.Variant;
 import org.godot.internal.GodotClassRegistry;
 import org.godot.internal.api.VirtualMethods;
 import org.godot.internal.dispatch.Dispatch;
@@ -214,7 +215,6 @@ public final class VirtualDispatch {
 	// ------------------------------------------------------------------------
 
 	static MemorySegment getVirtualCallDataFunc(MemorySegment classUserdata, MemorySegment namePtr, int hash) {
-		// Resolve class name from class_userdata
 		long userdataAddr = classUserdata.address();
 		String className = resolveClassNameFromUserdata(userdataAddr);
 		if (className == null) {
@@ -230,11 +230,11 @@ public final class VirtualDispatch {
 		long normalizedHash = hash & 0xFFFFFFFFL;
 
 		// Find candidate method names for this hash
-		Set<String> candidateNames;
+		java.util.Set<String> candidateNames;
 		if (dispatchData.aptData != null) {
 			candidateNames = dispatchData.aptData.hashToNames.get(normalizedHash);
 		} else {
-			candidateNames = VirtualMethods.HASH_TO_NAMES.get(normalizedHash);
+			candidateNames = org.godot.internal.api.VirtualMethods.HASH_TO_NAMES.get(normalizedHash);
 		}
 
 		if (candidateNames == null || candidateNames.isEmpty()) {
@@ -244,7 +244,6 @@ public final class VirtualDispatch {
 		// Check if any candidate is overridden for this class
 		for (String name : candidateNames) {
 			if (dispatchData.overriddenNames.contains(name)) {
-				// Allocate a unique userdata ID
 				long id = NEXT_USERDATA_ID.getAndIncrement();
 				USERDATA_TO_METHOD.put(id, name);
 				return MemorySegment.ofAddress(id);
@@ -268,12 +267,6 @@ public final class VirtualDispatch {
 		}
 
 		org.godot.internal.DebugLogger.logVirtual("dispatch", methodName, true);
-
-		// Discard re-entrant upcall during downcall or nested upcall
-		if (Bridge.isInNativeCallback()) {
-			writeNil(ret);
-			return;
-		}
 
 		long instanceAddr = instance.address();
 		Godot obj = JavaObjectMap.get(instanceAddr);
@@ -335,7 +328,12 @@ public final class VirtualDispatch {
 
 	private static void writeNil(MemorySegment ret) {
 		if (ret.address() != 0) {
-			Bridge.callVoid(org.godot.internal.api.ApiIndex.VARIANT_NEW_NIL, ret);
+			// Use byte-level writes to handle potentially unaligned ret pointers
+			// from virtual dispatch upcalls (e.g. address 0x18e24ea2a).
+			MemorySegment seg = MemorySegment.ofAddress(ret.address()).reinterpret(Variant.SIZE);
+			for (long i = 0; i < Variant.SIZE; i++) {
+				seg.set(JAVA_BYTE, i, (byte) 0);
+			}
 		}
 	}
 

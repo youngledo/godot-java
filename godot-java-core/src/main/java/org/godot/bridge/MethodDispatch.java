@@ -1,7 +1,6 @@
 package org.godot.bridge;
 
 import org.godot.Godot;
-import org.godot.core.GodotString;
 import org.godot.core.Variant;
 import org.godot.core.VariantUtils;
 import org.godot.internal.ref.JavaObjectMap;
@@ -123,6 +122,7 @@ public final class MethodDispatch {
 				if (result != null) {
 					Variant retVar = VariantUtils.fromObject(result);
 					Bridge.callVoid(org.godot.internal.api.ApiIndex.VARIANT_NEW_COPY, retSeg, retVar.getSegment());
+					Bridge.destroyVariant(retVar.getSegment());
 				} else {
 					Bridge.callVoid(org.godot.internal.api.ApiIndex.VARIANT_NEW_NIL, retSeg);
 				}
@@ -210,8 +210,14 @@ public final class MethodDispatch {
 		} else if (type == boolean.class || type == Boolean.class) {
 			ptr.set(JAVA_BYTE, 0, (Boolean) value ? (byte) 1 : (byte) 0);
 		} else if (type == String.class) {
-			GodotString gs = GodotString.fromJavaString((String) value);
-			MemorySegment.copy(gs.segment(), 0, ptr.reinterpret(8), 0, 8);
+			// Initialize String directly in the return buffer (no temporary GodotString
+			// needed)
+			byte[] utf8 = ((String) value).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+			MemorySegment cstr = Bridge.allocate(utf8.length + 1);
+			cstr.asByteBuffer().put(utf8);
+			cstr.set(JAVA_BYTE, utf8.length, (byte) 0);
+			Bridge.callVoid(org.godot.internal.api.ApiIndex.STRING_NEW_WITH_UTF8_CHARS_AND_LEN, ptr.reinterpret(16),
+					cstr, (long) utf8.length);
 		} else if (value instanceof Godot godotObj) {
 			MemorySegment objAddr = MemorySegment.ofAddress(godotObj.getPtr());
 			// RefCounted return: ptrcall expects RefPtr*, use ref_set_object

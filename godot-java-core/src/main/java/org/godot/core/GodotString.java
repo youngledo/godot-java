@@ -48,8 +48,9 @@ public final class GodotString {
 		cstr.asByteBuffer().put(utf8);
 		cstr.set(JAVA_BYTE, utf8.length, (byte) 0);
 
-		// Allocate buffer for the String struct (8 bytes on 64-bit — opaque handle)
-		MemorySegment strBuf = Bridge.arena().allocate(8, 8);
+		// Allocate buffer for the String struct (16 bytes on 64-bit: CowData<char32_t>
+		// = {char32_t* ptr; int64_t size})
+		MemorySegment strBuf = Bridge.arena().allocate(16, 8);
 
 		// Call: void string_new_with_utf8_chars_and_len(String* r_dest, const char*
 		// p_cstr, int64_t p_len)

@@ -20,13 +20,10 @@ import static java.lang.foreign.ValueLayout.*;
  * Handles Godot-side callable invocations back to Java.
  *
  * <p>
- * GDExtensionCallableCustomCall signature: void(void *callable_userdata, const
- * GDExtensionConstVariantPtr *p_args, GDExtensionInt p_argument_count,
- * GDExtensionVariantPtr r_return, GDExtensionCallError *r_error)
- *
- * <p>
- * This is different from GDExtensionClassMethodCall — the callable doesn't have
- * an instance pointer, only userdata that points to (objectId, methodName).
+ * GDExtensionCallableCustomCall (same signature for both create and create2):
+ * void(void* callable_userdata, const GDExtensionConstVariantPtr* p_args,
+ * GDExtensionInt p_argument_count, GDExtensionVariantPtr r_return,
+ * GDExtensionCallError* r_error)
  *
  * <p>
  * All reflection has been eliminated. Method dispatch is handled by the
@@ -46,12 +43,10 @@ public final class CallableDispatch {
 	private static final Map<Long, CallableEntry> CALLABLES = new ConcurrentHashMap<>();
 	private static long nextKey = 1;
 
-	private static final int ERROR_OK = 0;
-	private static final int ERROR_INVALID_ARGUMENT = 2;
-
 	/**
-	 * GDExtensionCallableCustomCall: void(ADDRESS userdata, ADDRESS args, JAVA_LONG
-	 * argc, ADDRESS ret, ADDRESS error)
+	 * GDExtensionCallableCustomCall: void(void* callable_userdata, const
+	 * GDExtensionConstVariantPtr* p_args, GDExtensionInt p_argument_count,
+	 * GDExtensionVariantPtr r_return, GDExtensionCallError* r_error)
 	 */
 	private static final FunctionDescriptor CALLABLE_CALL_FD = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_LONG,
 			ADDRESS, ADDRESS);
@@ -75,12 +70,6 @@ public final class CallableDispatch {
 
 	/**
 	 * Register a callable and return its unique key for userdata.
-	 *
-	 * @param object
-	 *            The Godot object to invoke the method on
-	 * @param methodName
-	 *            Name of the method to invoke
-	 * @return unique key that can be used as callable_userdata
 	 */
 	public static long registerCallable(Godot object, String methodName) {
 		return registerCallable(object, methodName, null);
@@ -88,14 +77,6 @@ public final class CallableDispatch {
 
 	/**
 	 * Register a callable with bound arguments and return its unique key.
-	 *
-	 * @param object
-	 *            The Godot object to invoke the method on
-	 * @param methodName
-	 *            Name of the method to invoke
-	 * @param boundArgs
-	 *            Pre-bound arguments (may be null)
-	 * @return unique key that can be used as callable_userdata
 	 */
 	public static long registerCallable(Godot object, String methodName, Object[] boundArgs) {
 		ensureInitialized();
@@ -126,49 +107,43 @@ public final class CallableDispatch {
 	}
 
 	/**
-	 * Panama adapter called by Godot when a custom callable is invoked.
-	 *
-	 * args is actually a pointer to an array of Variant pointers: p_args[i] =
-	 * *(GDExtensionConstVariantPtr*)(args + i * sizeof(GDExtensionConstVariantPtr))
+	 * Panama adapter called by Godot when a custom callable is invoked. Matches
+	 * GDExtensionCallableCustomCall signature.
 	 */
 	static void callAdapter(MemorySegment userdataSeg, MemorySegment argsSeg, long argCount, MemorySegment retSeg,
 			MemorySegment errorSeg) {
-		// Discard re-entrant upcall during downcall or nested upcall — native pointers
-		// are ephemeral
-		if (Bridge.isInNativeCallback()) {
-			// Use byte-level write to avoid downcall
+		// Only discard if we're in a direct upcall without a downcall in between.
+		// When IN_DOWNCALL=true, thread is in _thread_in_native, so nested
+		// upcalls are safe. Must allow signal handlers during downcalls.
+		if (Bridge.isInUpcall() && !Bridge.isInDowncall()) {
 			writeNilVariant(retSeg);
-			setError(errorSeg, ERROR_OK);
+			setError(errorSeg, 0);
 			return;
 		}
 
 		try {
-			// Get key from userdata
 			long key = userdataSeg.address();
 			CallableEntry entry = CALLABLES.get(key);
 			if (entry == null) {
 				writeNilVariant(retSeg);
-				setError(errorSeg, ERROR_INVALID_ARGUMENT);
+				setError(errorSeg, 2);
 				return;
 			}
 
-			// Get Java object from stored object ID
 			Godot obj = JavaObjectMap.get(entry.objectPtr());
 			if (obj == null) {
 				writeNilVariant(retSeg);
-				setError(errorSeg, ERROR_INVALID_ARGUMENT);
+				setError(errorSeg, 2);
 				return;
 			}
 
-			// Resolve the Godot class name for dispatch
 			String godotClassName = Dispatch.getGodotClassName(obj.getClass().getName());
 			if (godotClassName == null || godotClassName.isEmpty()) {
 				writeNilVariant(retSeg);
-				setError(errorSeg, ERROR_INVALID_ARGUMENT);
+				setError(errorSeg, 2);
 				return;
 			}
 
-			// Convert variant args to Java objects
 			int argc = (int) argCount;
 			Object[] javaArgs = new Object[argc];
 			for (int i = 0; i < argc; i++) {
@@ -178,12 +153,10 @@ public final class CallableDispatch {
 						javaArgs[i] = VariantUtils.toObject(new Variant(argPtr.reinterpret(Variant.SIZE)));
 					}
 				} catch (Exception e) {
-					// Arg pointer may be invalid during scene transitions
 					javaArgs[i] = null;
 				}
 			}
 
-			// Prepend bound args if any
 			Object[] argsToInvoke;
 			if (entry.boundArgs != null && entry.boundArgs.length > 0) {
 				argsToInvoke = new Object[entry.boundArgs.length + javaArgs.length];
@@ -193,10 +166,8 @@ public final class CallableDispatch {
 				argsToInvoke = javaArgs;
 			}
 
-			// Dispatch via Dispatch facade (zero-reflection path)
 			Object result = Dispatch.dispatchVariantCall(godotClassName, entry.methodName, obj, argsToInvoke);
 
-			// Set return value — avoid downcalls in return path
 			if (result != null) {
 				try {
 					org.godot.core.VariantUtils.writeVariantFromObject(retSeg, result);
@@ -207,29 +178,26 @@ public final class CallableDispatch {
 				writeNilVariant(retSeg);
 			}
 
-			setError(errorSeg, ERROR_OK);
+			setError(errorSeg, 0);
+
 		} catch (Throwable t) {
 			try {
 				writeNilVariant(retSeg);
-				setError(errorSeg, ERROR_INVALID_ARGUMENT);
+				setError(errorSeg, 2);
 			} catch (Exception e) {
-				// Best effort — avoid triggering further errors
+				// Best effort
 			}
 		}
 	}
 
 	private static void setError(MemorySegment errorSeg, int errorCode) {
-		if (!errorSeg.equals(MemorySegment.NULL)) {
+		if (errorSeg != null && !errorSeg.equals(MemorySegment.NULL)) {
 			errorSeg.reinterpret(16).set(JAVA_INT, 0, errorCode);
 			errorSeg.reinterpret(16).set(JAVA_INT, 4, 0);
 			errorSeg.reinterpret(16).set(JAVA_INT, 8, 0);
 		}
 	}
 
-	/**
-	 * Write a nil Variant to retSeg using byte-level copy from a static nil
-	 * template. Uses byte-level writes to avoid downcall from upcall context.
-	 */
 	private static void writeNilVariant(MemorySegment retSeg) {
 		MemorySegment seg = retSeg.reinterpret(Variant.SIZE);
 		seg.set(JAVA_LONG, 0, 0L);
@@ -240,7 +208,7 @@ public final class CallableDispatch {
 	private static class CallableEntry {
 		final Godot object;
 		final String methodName;
-		final Object[] boundArgs; // may be null
+		final Object[] boundArgs;
 
 		CallableEntry(Godot object, String methodName, Object[] boundArgs) {
 			this.object = object;

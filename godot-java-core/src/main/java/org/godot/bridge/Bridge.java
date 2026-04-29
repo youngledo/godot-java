@@ -41,7 +41,7 @@ public final class Bridge {
 	 * Arena for persistent allocations (registration phase). Lives for JVM
 	 * lifetime.
 	 */
-	static final Arena ARENA = Arena.ofShared();
+	public static final Arena ARENA = Arena.ofShared();
 
 	/** Linker instance for the native platform ABI. */
 	private static final Linker LINKER = Linker.nativeLinker();
@@ -68,6 +68,68 @@ public final class Bridge {
 	 * persistent {@link #ARENA}.
 	 */
 	private static final ScopedValue<Arena> CALL_ARENA = ScopedValue.newInstance();
+
+	// ------------------------------------------------------------------------
+	// Pre-allocated call frame (eliminates per-call Arena creation)
+	// ------------------------------------------------------------------------
+
+	/** Maximum nesting depth for re-entrant Godot calls. */
+	public static final int MAX_CALL_DEPTH = 8;
+
+	/** Maximum arguments per call. */
+	public static final int MAX_CALL_ARGS = 16;
+
+	/**
+	 * Size of one call frame: arg slots (MAX_CALL_ARGS × 24) + result slot (24) +
+	 * error (16) + arg ptrs (MAX_CALL_ARGS × 8)
+	 */
+	private static final long FRAME_SIZE = (long) MAX_CALL_ARGS * Variant.SIZE + Variant.SIZE + 16
+			+ (long) MAX_CALL_ARGS * 8;
+
+	/** Pre-allocated memory for all call frames. */
+	private static final MemorySegment CALL_FRAMES = ARENA.allocate(FRAME_SIZE * MAX_CALL_DEPTH, 8);
+
+	/** Scoped depth tracker for re-entrant call partitioning. */
+	private static final ScopedValue<Integer> CALL_DEPTH = ScopedValue.newInstance();
+
+	/** Get current call nesting depth (0 = top-level). */
+	public static int callDepth() {
+		return CALL_DEPTH.orElse(0);
+	}
+
+	/** Get arg Variant slot at given depth and index. */
+	public static MemorySegment argSlot(int depth, int index) {
+		return CALL_FRAMES.asSlice((long) depth * FRAME_SIZE + (long) index * Variant.SIZE, Variant.SIZE);
+	}
+
+	/** Get result Variant slot at given depth. */
+	public static MemorySegment resultSlot(int depth) {
+		return CALL_FRAMES.asSlice((long) depth * FRAME_SIZE + (long) MAX_CALL_ARGS * Variant.SIZE, Variant.SIZE);
+	}
+
+	/** Get error struct slot at given depth (4 × int32 = 16 bytes). */
+	public static MemorySegment errorSlot(int depth) {
+		return CALL_FRAMES.asSlice((long) depth * FRAME_SIZE + ((long) MAX_CALL_ARGS + 1) * Variant.SIZE, 16);
+	}
+
+	/** Get arg pointer array at given depth. */
+	public static MemorySegment argPtrsSlot(int depth) {
+		return CALL_FRAMES.asSlice((long) depth * FRAME_SIZE + ((long) MAX_CALL_ARGS + 1) * Variant.SIZE + 16,
+				(long) MAX_CALL_ARGS * 8);
+	}
+
+	/** Execute an action with incremented call depth for re-entrant safety. */
+	public static <T> T withCallDepth(int depth, java.util.concurrent.Callable<T> action) {
+		return ScopedValue.where(CALL_DEPTH, depth + 1).call(() -> {
+			try {
+				return action.call();
+			} catch (RuntimeException e) {
+				throw e;
+			} catch (Exception e) {
+				throw new RuntimeException(e);
+			}
+		});
+	}
 
 	// ------------------------------------------------------------------------
 	// Initialization

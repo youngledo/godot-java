@@ -47,6 +47,7 @@ public final class JavaObjectMap {
 		Godot obj = NATIVE_TO_JAVA.remove(nativePtr);
 		if (obj != null) {
 			JAVA_TO_NATIVE.remove(obj);
+			RefCountedHelper.unreference(nativePtr);
 			obj.onFreed();
 		}
 	}

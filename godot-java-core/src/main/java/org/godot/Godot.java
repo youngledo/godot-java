@@ -10,6 +10,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.lang.foreign.MemorySegment;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static java.lang.foreign.ValueLayout.JAVA_INT;
 import static java.lang.foreign.ValueLayout.ADDRESS;
@@ -17,6 +18,19 @@ import static java.lang.foreign.ValueLayout.ADDRESS;
 public abstract class Godot {
 
 	private static final Logger logger = LogManager.getLogger(Godot.class);
+
+	/** Cache: "className::methodName" → MethodBind pointer. Never evicted. */
+	private static final ConcurrentHashMap<String, MemorySegment> METHOD_BIND_CACHE = new ConcurrentHashMap<>();
+
+	private static MemorySegment getCachedMethodBind(String className, String methodName, long hash) {
+		String key = className + "::" + methodName;
+		return METHOD_BIND_CACHE.computeIfAbsent(key, k -> {
+			GodotStringName methodSn = GodotStringName.fromJavaString(methodName);
+			GodotStringName classNameSn = GodotStringName.fromJavaString(className);
+			return Bridge.callPtr2S1L(ApiIndex.CLASSDB_GET_METHOD_BIND, classNameSn.segment(), methodSn.segment(),
+					hash);
+		});
+	}
 
 	protected volatile long nativeObject;
 
@@ -101,60 +115,66 @@ public abstract class Godot {
 		}
 
 		return Bridge.runDowncall(() -> Bridge.runScoped(() -> {
+			int depth = Bridge.callDepth();
+			if (depth >= Bridge.MAX_CALL_DEPTH) {
+				throw new RuntimeException("Maximum call depth exceeded: " + depth);
+			}
 			int argc = args.length;
-			MemorySegment argPtrs;
-			MemorySegment[] argVarSegments = new MemorySegment[argc];
+			if (argc > Bridge.MAX_CALL_ARGS) {
+				throw new RuntimeException("Too many arguments: " + argc + " (max " + Bridge.MAX_CALL_ARGS + ")");
+			}
+
 			try {
+				// Destroy previous result at this depth to release RefCounted refs.
+				// CALL_FRAMES is zero-initialized, so first call is a no-op.
+				Bridge.destroyVariant(Bridge.resultSlot(depth));
+				MemorySegment argPtrs;
 				if (argc > 0) {
-					argPtrs = Bridge.allocate(ADDRESS.byteSize() * argc);
+					argPtrs = Bridge.argPtrsSlot(depth);
 					for (int i = 0; i < argc; i++) {
-						Variant argVar = VariantUtils.fromObject(args[i]);
-						argVarSegments[i] = argVar.getSegment();
-						argPtrs.set(ADDRESS, (long) i * ADDRESS.byteSize(), argVarSegments[i]);
+						MemorySegment slot = Bridge.argSlot(depth, i);
+						VariantUtils.fromObjectInto(args[i], slot);
+						argPtrs.set(ADDRESS, (long) i * ADDRESS.byteSize(), slot);
 					}
 				} else {
 					argPtrs = MemorySegment.NULL;
 				}
 
-				MemorySegment resultVar = Bridge.allocVariant();
-				MemorySegment errorVar = Bridge.allocate(4 * 4);
+				MemorySegment resultVar = Bridge.resultSlot(depth);
+				MemorySegment errorVar = Bridge.errorSlot(depth);
 
-				HashResult hashResult = resolveMethodHash(methodName);
-				if (hashResult.isFound()) {
-					GodotStringName methodSn = GodotStringName.fromJavaString(methodName);
-					GodotStringName classNameSn = GodotStringName.fromJavaString(hashResult.className);
-					long methodBindAddr = Bridge.callPtr2S1L(ApiIndex.CLASSDB_GET_METHOD_BIND, classNameSn.segment(),
-							methodSn.segment(), hashResult.hash).address();
-
-					if (methodBindAddr == 0) {
-						throw new RuntimeException(
-								"Method bind not found: " + methodName + " on " + hashResult.className);
+				return Bridge.withCallDepth(depth, () -> {
+					HashResult hashResult = resolveMethodHash(methodName);
+					if (hashResult.isFound()) {
+						MemorySegment methodBind = getCachedMethodBind(hashResult.className, methodName,
+								hashResult.hash);
+						if (methodBind.address() == 0) {
+							throw new RuntimeException(
+									"Method bind not found: " + methodName + " on " + hashResult.className);
+						}
+						Bridge.callVoid(ApiIndex.OBJECT_METHOD_BIND_CALL, methodBind,
+								MemorySegment.ofAddress(nativeObject), argPtrs, (long) argc, resultVar, errorVar);
+					} else {
+						GodotStringName methodSn = GodotStringName.fromJavaString(methodName);
+						Bridge.callVoid(ApiIndex.OBJECT_CALL_SCRIPT_METHOD, MemorySegment.ofAddress(nativeObject),
+								methodSn.segment(), argPtrs, (long) argc, resultVar, errorVar);
 					}
 
-					Bridge.callVoid(ApiIndex.OBJECT_METHOD_BIND_CALL, MemorySegment.ofAddress(methodBindAddr),
-							MemorySegment.ofAddress(nativeObject), argPtrs, (long) argc, resultVar, errorVar);
-				} else {
-					// Fallback for GDScript/user-defined methods
-					GodotStringName methodSn = GodotStringName.fromJavaString(methodName);
-					Bridge.callVoid(ApiIndex.OBJECT_CALL_SCRIPT_METHOD, MemorySegment.ofAddress(nativeObject),
-							methodSn.segment(), argPtrs, (long) argc, resultVar, errorVar);
-				}
+					int errorCode = errorVar.get(JAVA_INT, 0);
+					if (errorCode != 0) {
+						StringBuilder sb = new StringBuilder();
+						sb.append("Call error ").append(errorCode).append(" calling ").append(methodName);
+						sb.append(" (arg=").append(errorVar.get(JAVA_INT, 4));
+						sb.append(", expected=").append(errorVar.get(JAVA_INT, 8)).append(")");
+						throw new RuntimeException(sb.toString());
+					}
 
-				int errorCode = errorVar.get(JAVA_INT, 0);
-				if (errorCode != 0) {
-					throw new RuntimeException("Call error " + errorCode + " calling " + methodName + " (arg="
-							+ errorVar.get(JAVA_INT, 4) + ", expected=" + errorVar.get(JAVA_INT, 8) + ")");
-				}
-
-				Variant resultVariant = new Variant(resultVar);
-				java.lang.Object result = VariantUtils.toObject(resultVariant);
-				Bridge.destroyVariant(resultVar);
-				return result;
+					Variant resultVariant = new Variant(resultVar);
+					return VariantUtils.toObject(resultVariant);
+				});
 			} finally {
-				for (MemorySegment seg : argVarSegments) {
-					if (seg != null) {
-						Bridge.destroyVariant(seg);
-					}
+				for (int i = 0; i < argc; i++) {
+					Bridge.destroyVariant(Bridge.argSlot(depth, i));
 				}
 			}
 		}));
@@ -168,64 +188,63 @@ public abstract class Godot {
 		checkValid();
 
 		return Bridge.runDowncall(() -> Bridge.runScoped(() -> {
+			int depth = Bridge.callDepth();
+			if (depth >= Bridge.MAX_CALL_DEPTH) {
+				return -1;
+			}
+
 			HashResult hr = resolveMethodHash("emit_signal");
 			if (!hr.isFound()) {
 				return -1;
 			}
 
-			GodotStringName methodSn = GodotStringName.fromJavaString("emit_signal");
-			GodotStringName objectClass = GodotStringName.fromJavaString(hr.className);
-			long methodBindAddr = Bridge
-					.callPtr2S1L(ApiIndex.CLASSDB_GET_METHOD_BIND, objectClass.segment(), methodSn.segment(), hr.hash)
-					.address();
-			if (methodBindAddr == 0) {
+			MemorySegment methodBind = getCachedMethodBind(hr.className, "emit_signal", hr.hash);
+			if (methodBind.address() == 0) {
 				return -2;
 			}
 
 			int argc = 1 + (args != null ? args.length : 0);
-			MemorySegment argPtrs = Bridge.allocate(ADDRESS.byteSize() * argc);
+			if (argc > Bridge.MAX_CALL_ARGS) {
+				return -1;
+			}
 
-			MemorySegment snVarSegment = null;
-			MemorySegment[] payloadVarSegments = args != null ? new MemorySegment[args.length] : new MemorySegment[0];
 			try {
-				Variant snVar = Variant.fromStringName(GodotStringName.fromJavaString(signalName));
-				snVarSegment = snVar.getSegment();
-				argPtrs.set(ADDRESS, 0, snVarSegment);
+				Bridge.destroyVariant(Bridge.resultSlot(depth));
+				MemorySegment argPtrs = Bridge.argPtrsSlot(depth);
+
+				MemorySegment snSlot = Bridge.argSlot(depth, 0);
+				Variant.fromStringNameInto(GodotStringName.fromJavaString(signalName), snSlot);
+				argPtrs.set(ADDRESS, 0, snSlot);
 
 				for (int i = 0; args != null && i < args.length; i++) {
-					Variant argVar = VariantUtils.fromObject(args[i]);
-					payloadVarSegments[i] = argVar.getSegment();
-					argPtrs.set(ADDRESS, (long) (i + 1) * ADDRESS.byteSize(), payloadVarSegments[i]);
+					MemorySegment slot = Bridge.argSlot(depth, i + 1);
+					VariantUtils.fromObjectInto(args[i], slot);
+					argPtrs.set(ADDRESS, (long) (i + 1) * ADDRESS.byteSize(), slot);
 				}
 
-				MemorySegment resultVar = Bridge.allocVariant();
-				MemorySegment errorVar = Bridge.allocate(4 * 4);
+				MemorySegment resultVar = Bridge.resultSlot(depth);
+				MemorySegment errorVar = Bridge.errorSlot(depth);
 
-				Bridge.callVoid(ApiIndex.OBJECT_METHOD_BIND_CALL, MemorySegment.ofAddress(methodBindAddr),
-						MemorySegment.ofAddress(nativeObject), argPtrs, (long) argc, resultVar, errorVar);
+				return Bridge.withCallDepth(depth, () -> {
+					Bridge.callVoid(ApiIndex.OBJECT_METHOD_BIND_CALL, methodBind, MemorySegment.ofAddress(nativeObject),
+							argPtrs, (long) argc, resultVar, errorVar);
 
-				int errorCode = errorVar.get(JAVA_INT, 0);
-				if (errorCode != 0) {
-					logger.error("emit_signal '{}' failed: error={}", signalName, errorCode);
-					return -3;
-				}
-
-				Variant resultVariant = new Variant(resultVar);
-				java.lang.Object result = VariantUtils.toObject(resultVariant);
-				Bridge.destroyVariant(resultVar);
-
-				if (result instanceof Number) {
-					return ((Number) result).intValue();
-				}
-				return 0;
-			} finally {
-				if (snVarSegment != null) {
-					Bridge.destroyVariant(snVarSegment);
-				}
-				for (MemorySegment seg : payloadVarSegments) {
-					if (seg != null) {
-						Bridge.destroyVariant(seg);
+					int errorCode = errorVar.get(JAVA_INT, 0);
+					if (errorCode != 0) {
+						logger.error("emit_signal '{}' failed: error={}", signalName, errorCode);
+						return -3;
 					}
+
+					Variant resultVariant = new Variant(resultVar);
+					java.lang.Object result = VariantUtils.toObject(resultVariant);
+					if (result instanceof Number) {
+						return ((Number) result).intValue();
+					}
+					return 0;
+				});
+			} finally {
+				for (int i = 0; i < argc; i++) {
+					Bridge.destroyVariant(Bridge.argSlot(depth, i));
 				}
 			}
 		}));

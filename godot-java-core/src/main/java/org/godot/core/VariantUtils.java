@@ -86,13 +86,92 @@ public final class VariantUtils {
 	}
 
 	/**
+	 * Write a Java object value directly into a pre-allocated Variant slot. For
+	 * common types (null, bool, int, float, String, Vector2, Vector3, Godot
+	 * objects) writes directly without allocation. For rare complex types falls
+	 * back to fromObject + VARIANT_NEW_COPY.
+	 */
+	public static void fromObjectInto(Object value, MemorySegment target) {
+		if (value == null) {
+			target.set(JAVA_INT, 0, VariantType.NIL.id());
+			return;
+		}
+		if (value instanceof Boolean b) {
+			target.set(JAVA_INT, 0, VariantType.BOOL.id());
+			target.set(JAVA_BYTE, 8, (byte) (b ? 1 : 0));
+			return;
+		}
+		if (value instanceof Rid rid) {
+			target.set(JAVA_INT, 0, VariantType.RID.id());
+			target.set(JAVA_LONG, 8, rid.id());
+			return;
+		}
+		if (value instanceof Integer || value instanceof Long) {
+			target.set(JAVA_INT, 0, VariantType.INT.id());
+			target.set(JAVA_LONG, 8, ((Number) value).longValue());
+			return;
+		}
+		if (value instanceof Float || value instanceof Double) {
+			target.set(JAVA_INT, 0, VariantType.FLOAT.id());
+			target.set(JAVA_LONG, 8, Double.doubleToRawLongBits(((Number) value).doubleValue()));
+			return;
+		}
+		if (value instanceof String s) {
+			Variant.fromStringInto(s, target);
+			return;
+		}
+		if (value instanceof GodotStringName sn) {
+			Variant.fromStringNameInto(sn, target);
+			return;
+		}
+		if (value instanceof Vector2 v2) {
+			target.set(JAVA_INT, 0, VariantType.VECTOR2.id());
+			target.set(JAVA_INT, 8, Float.floatToRawIntBits((float) v2.x));
+			target.set(JAVA_INT, 12, Float.floatToRawIntBits((float) v2.y));
+			return;
+		}
+		if (value instanceof Vector3 v3) {
+			target.set(JAVA_INT, 0, VariantType.VECTOR3.id());
+			target.set(JAVA_INT, 8, Float.floatToRawIntBits((float) v3.x));
+			target.set(JAVA_INT, 12, Float.floatToRawIntBits((float) v3.y));
+			target.set(JAVA_INT, 16, Float.floatToRawIntBits((float) v3.z));
+			return;
+		}
+		if (value instanceof Color c) {
+			target.set(JAVA_INT, 0, VariantType.COLOR.id());
+			target.set(JAVA_FLOAT, 8, (float) c.r);
+			target.set(JAVA_FLOAT, 12, (float) c.g);
+			target.set(JAVA_FLOAT, 16, (float) c.b);
+			target.set(JAVA_FLOAT, 20, (float) c.a);
+			return;
+		}
+		if (value instanceof Godot godot) {
+			Variant.fromObjectPtrInto(godot.getPtr(), target);
+			return;
+		}
+		// Fallback for complex types
+		Variant v = fromObject(value);
+		Bridge.callVoid(ApiIndex.VARIANT_NEW_COPY, target, v.getSegment());
+		Bridge.destroyVariant(v.getSegment());
+	}
+
+	/**
 	 * Write a Java object value directly into an uninitialized Variant memory
 	 * segment. Uses byte-level writes to handle unaligned ret pointers from virtual
 	 * dispatch upcalls (e.g. address 0x18e24ea2a).
 	 */
 	public static void writeVariantFromObject(MemorySegment ret, Object value) {
-		if (value == null)
+		if (value == null) {
+			// Must write NIL — ret is uninitialized and Godot will use whatever is there
+			long addr = ret.address();
+			if (addr != 0) {
+				MemorySegment seg = MemorySegment.ofAddress(addr).reinterpret(Variant.SIZE);
+				for (long i = 0; i < Variant.SIZE; i++) {
+					seg.set(JAVA_BYTE, i, (byte) 0);
+				}
+			}
 			return;
+		}
 		long addr = ret.address();
 		MemorySegment seg = MemorySegment.ofAddress(addr).reinterpret(Variant.SIZE);
 		if (value instanceof Boolean b) {
@@ -110,6 +189,7 @@ public final class VariantUtils {
 		} else {
 			Variant v = fromObject(value);
 			Bridge.callVoid(org.godot.internal.api.ApiIndex.VARIANT_NEW_COPY, ret, v.getSegment());
+			Bridge.destroyVariant(v.getSegment());
 		}
 	}
 
@@ -190,21 +270,32 @@ public final class VariantUtils {
 			long objectId = seg.get(JAVA_LONG, 8);
 			if (objectId == 0)
 				return null;
+			// Godot ObjectID bit 63 = RefCounted flag (OBJECTDB_REFERENCE_BIT).
+			// Only RefCounted objects need reference() to prevent premature freeing.
+			boolean isRefCounted = (objectId & (1L << 63)) != 0;
 			// Variant OBJECT stores ObjectID, not a pointer. Resolve to actual pointer.
 			MemorySegment objPtr = Bridge.callPtr(ApiIndex.OBJECT_GET_INSTANCE_FROM_ID, objectId);
 			long ptr = objPtr.address();
 			if (ptr == 0)
 				return null;
 			Object obj = org.godot.internal.ref.JavaObjectMap.get(ptr);
-			if (obj != null)
-				return obj;
+			if (obj instanceof Godot g)
+				return g;
 			// Query Godot class name and create typed wrapper
 			Godot typed = org.godot.internal.GodotClassRegistry.createTypedWrapper(ptr);
 			if (typed != null) {
 				org.godot.internal.ref.JavaObjectMap.put(ptr, typed);
+				if (isRefCounted) {
+					org.godot.internal.ref.RefCountedHelper.reference(ptr);
+				}
 				return typed;
 			}
-			return new org.godot.internal.ref.GenericGodotObject(ptr, "Object");
+			org.godot.internal.ref.GenericGodotObject generic = new org.godot.internal.ref.GenericGodotObject(ptr,
+					"Object");
+			if (isRefCounted) {
+				org.godot.internal.ref.RefCountedHelper.reference(ptr);
+			}
+			return generic;
 		}
 		if (type == VariantType.RID.id())
 			return new Rid(seg.get(JAVA_LONG, 8));
@@ -432,10 +523,10 @@ public final class VariantUtils {
 		int size = (int) variantSeg.get(JAVA_LONG, 16);
 		if (arrayPtr == 0 || size == 0)
 			return new byte[0];
-		MemorySegment arrSeg = MemorySegment.ofAddress(arrayPtr);
+		MemorySegment arrSeg = MemorySegment.ofAddress(arrayPtr).reinterpret(size);
 		byte[] result = new byte[size];
 		for (int i = 0; i < size; i++) {
-			result[i] = (byte) arrSeg.get(JAVA_INT, i);
+			result[i] = arrSeg.get(JAVA_BYTE, (long) i);
 		}
 		return result;
 	}

@@ -233,7 +233,7 @@ public final class InstanceCallbacks {
 		String propName = stringNamePtrToString(namePtr);
 
 		// Read Variant value
-		MemorySegment valueSeg = MemorySegment.ofAddress(valuePtr).reinterpret(16);
+		MemorySegment valueSeg = MemorySegment.ofAddress(valuePtr).reinterpret(Variant.SIZE);
 		Variant variant = new Variant(valueSeg);
 		Object javaValue = VariantUtils.toObject(variant);
 
@@ -789,14 +789,14 @@ public final class InstanceCallbacks {
 		info.set(ADDRESS, StructOffsets.CREATION_INFO4_OFF_VALIDATE_PROPERTY_FUNC,
 				MemorySegment.ofAddress(validatePropStub.address()));
 
-		// notification_func — forward Godot notifications to Java
-		// GDExtensionBool is uint8_t, use JAVA_BYTE for reversed param
-		FunctionDescriptor notifyFd = FunctionDescriptor.ofVoid(ADDRESS, JAVA_INT, JAVA_BYTE);
-		MethodHandle notifyHandle = findStatic("notificationAdapter",
-				MethodType.methodType(void.class, MemorySegment.class, int.class, byte.class));
-		MemorySegment notifyStub = Bridge.linker().upcallStub(notifyHandle, notifyFd, Bridge.ARENA);
-		info.set(ADDRESS, StructOffsets.CREATION_INFO4_OFF_NOTIFICATION_FUNC,
-				MemorySegment.ofAddress(notifyStub.address()));
+		// notification_func — set to NULL for now.
+		// The Panama FFI upcall stub for notifications can crash when Godot sends
+		// notifications while the thread is in _thread_in_Java state (e.g., during
+		// virtual dispatch upcalls that trigger notification propagation).
+		// Since no class overrides onNotification(), this is safe to disable.
+		// Important notifications (NOTIFICATION_READY, etc.) are handled via virtual
+		// dispatch.
+		info.set(ADDRESS, StructOffsets.CREATION_INFO4_OFF_NOTIFICATION_FUNC, MemorySegment.NULL);
 
 		// to_string_func — bridge Java toString() to Godot
 		FunctionDescriptor toStringFd = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, ADDRESS);

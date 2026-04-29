@@ -98,7 +98,8 @@ public final class Basis {
 	}
 
 	/**
-	 * Create from Euler angles (radians). Order: Z * Y * X (Godot default).
+	 * Create from Euler angles (radians). Godot default order: YXZ (intrinsic Y,
+	 * then X, then Z). Matrix: R_z(ez) * R_x(ex) * R_y(ey).
 	 */
 	public static Basis fromEuler(Vector3 euler) {
 		double ex = euler.x, ey = euler.y, ez = euler.z;
@@ -106,9 +107,21 @@ public final class Basis {
 		double cy = Math.cos(ey), sy = Math.sin(ey);
 		double cz = Math.cos(ez), sz = Math.sin(ez);
 
-		// R_z(ez) * R_y(ey) * R_x(ex)
-		return new Basis(cy * cz, sx * sy * cz - cx * sz, cx * sy * cz + sx * sz, cy * sz, sx * sy * sz + cx * cz,
-				cx * sy * sz - sx * cz, -sy, sx * cy, cx * cy);
+		// R_z(ez) * R_x(ex) * R_y(ey) — column-major
+		// Column 0 (xx, xy, xz):
+		double c0x = cz * cy + sz * sx * sy;
+		double c0y = sz * cy - cz * sx * sy;
+		double c0z = cx * sy;
+		// Column 1 (yx, yy, yz):
+		double c1x = -sz * cx;
+		double c1y = cz * cx;
+		double c1z = -sx;
+		// Column 2 (zx, zy, zz):
+		double c2x = -cz * sy + sz * sx * cy;
+		double c2y = -sz * sy - cz * sx * cy;
+		double c2z = cx * cy;
+
+		return new Basis(c0x, c0y, c0z, c1x, c1y, c1z, c2x, c2y, c2z);
 	}
 
 	/**
