@@ -7,6 +7,8 @@ import org.godot.collection.GodotDictionary;
 import org.godot.internal.api.ApiIndex;
 import org.godot.internal.api.VariantType;
 import org.godot.math.*;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import java.lang.foreign.MemorySegment;
 import java.lang.invoke.MethodHandle;
 import static java.lang.foreign.ValueLayout.ADDRESS;
@@ -19,6 +21,8 @@ import static java.lang.foreign.ValueLayout.JAVA_LONG;
  * Utility for converting between Java objects and Godot Variants.
  */
 public final class VariantUtils {
+
+	private static final Logger logger = LogManager.getLogger(VariantUtils.class);
 
 	private VariantUtils() {
 	}
@@ -149,10 +153,85 @@ public final class VariantUtils {
 			Variant.fromObjectPtrInto(godot.getPtr(), target);
 			return;
 		}
+		if (value instanceof Transform3D t) {
+			fromTransform3DInto(t, target);
+			return;
+		}
+		if (value instanceof Basis b) {
+			fromBasisInto(b, target);
+			return;
+		}
+		if (value instanceof Quaternion q) {
+			fromQuaternionInto(q, target);
+			return;
+		}
 		// Fallback for complex types
 		Variant v = fromObject(value);
 		Bridge.callVoid(ApiIndex.VARIANT_NEW_COPY, target, v.getSegment());
 		Bridge.destroyVariant(v.getSegment());
+	}
+
+	/**
+	 * Write a Transform3D directly into a pre-allocated Variant slot using the
+	 * GDExtension type constructor. Throws on failure instead of silently returning
+	 * NIL.
+	 */
+	public static void fromTransform3DInto(Transform3D t, MemorySegment target) {
+		MethodHandle ctor = Variant.getTypeConstructor(VariantType.TRANSFORM3D.id());
+		if (ctor == null) {
+			throw new org.godot.exception.GodotException(
+					"Transform3D type constructor not available — get_variant_from_type_constructor returned null");
+		}
+		MemorySegment buf = Bridge.allocate(48);
+		buf.set(JAVA_FLOAT, 0, (float) t.xx);
+		buf.set(JAVA_FLOAT, 4, (float) t.xy);
+		buf.set(JAVA_FLOAT, 8, (float) t.xz);
+		buf.set(JAVA_FLOAT, 12, (float) t.yx);
+		buf.set(JAVA_FLOAT, 16, (float) t.yy);
+		buf.set(JAVA_FLOAT, 20, (float) t.yz);
+		buf.set(JAVA_FLOAT, 24, (float) t.zx);
+		buf.set(JAVA_FLOAT, 28, (float) t.zy);
+		buf.set(JAVA_FLOAT, 32, (float) t.zz);
+		buf.set(JAVA_FLOAT, 36, (float) t.ox);
+		buf.set(JAVA_FLOAT, 40, (float) t.oy);
+		buf.set(JAVA_FLOAT, 44, (float) t.oz);
+		try {
+			ctor.invoke(target, buf);
+		} catch (Throwable e) {
+			throw new org.godot.exception.GodotException("Transform3D Variant construction failed", e);
+		}
+	}
+
+	/** Write a Basis directly into a pre-allocated Variant slot. */
+	public static void fromBasisInto(Basis t, MemorySegment target) {
+		MethodHandle ctor = Variant.getTypeConstructor(VariantType.BASIS.id());
+		if (ctor == null) {
+			throw new org.godot.exception.GodotException("Basis type constructor not available");
+		}
+		MemorySegment buf = Bridge.allocate(36);
+		buf.set(JAVA_FLOAT, 0, (float) t.xx);
+		buf.set(JAVA_FLOAT, 4, (float) t.xy);
+		buf.set(JAVA_FLOAT, 8, (float) t.xz);
+		buf.set(JAVA_FLOAT, 12, (float) t.yx);
+		buf.set(JAVA_FLOAT, 16, (float) t.yy);
+		buf.set(JAVA_FLOAT, 20, (float) t.yz);
+		buf.set(JAVA_FLOAT, 24, (float) t.zx);
+		buf.set(JAVA_FLOAT, 28, (float) t.zy);
+		buf.set(JAVA_FLOAT, 32, (float) t.zz);
+		try {
+			ctor.invoke(target, buf);
+		} catch (Throwable e) {
+			throw new org.godot.exception.GodotException("Basis Variant construction failed", e);
+		}
+	}
+
+	/** Write a Quaternion directly into a pre-allocated Variant slot. */
+	public static void fromQuaternionInto(Quaternion q, MemorySegment target) {
+		target.set(JAVA_INT, 0, VariantType.QUATERNION.id());
+		target.set(JAVA_FLOAT, 8, (float) q.x);
+		target.set(JAVA_FLOAT, 12, (float) q.y);
+		target.set(JAVA_FLOAT, 16, (float) q.z);
+		target.set(JAVA_FLOAT, 20, (float) q.w);
 	}
 
 	/**
@@ -186,6 +265,15 @@ public final class VariantUtils {
 		} else if (value instanceof Float || value instanceof Double) {
 			writeUnalignedInt(seg, 0, VariantType.FLOAT.id());
 			writeUnalignedLong(seg, 8, Double.doubleToRawLongBits(((Number) value).doubleValue()));
+		} else if (value instanceof Transform3D || value instanceof Basis || value instanceof Quaternion) {
+			// Large types: construct in aligned buffer, then byte-copy to potentially
+			// unaligned ret
+			Variant v = fromObject(value);
+			MemorySegment src = v.getSegment();
+			for (long i = 0; i < Variant.SIZE; i++) {
+				seg.set(JAVA_BYTE, i, src.get(JAVA_BYTE, i));
+			}
+			Bridge.destroyVariant(src);
 		} else {
 			Variant v = fromObject(value);
 			Bridge.callVoid(org.godot.internal.api.ApiIndex.VARIANT_NEW_COPY, ret, v.getSegment());
@@ -437,7 +525,8 @@ public final class VariantUtils {
 				float f4 = buf.get(JAVA_FLOAT, 16);
 				float f5 = buf.get(JAVA_FLOAT, 20);
 				return new AABB(f0, f1, f2, f3, f4, f5);
-			} catch (Throwable ignored) {
+			} catch (Throwable t) {
+				logger.error("AABB extractor failed", t);
 			}
 		}
 		return new AABB();
@@ -459,7 +548,8 @@ public final class VariantUtils {
 				float f7 = buf.get(JAVA_FLOAT, 28);
 				float f8 = buf.get(JAVA_FLOAT, 32);
 				return new Basis(f0, f1, f2, f3, f4, f5, f6, f7, f8);
-			} catch (Throwable ignored) {
+			} catch (Throwable t) {
+				logger.error("Basis extractor failed", t);
 			}
 		}
 		return new Basis();
@@ -476,7 +566,8 @@ public final class VariantUtils {
 						buf.get(JAVA_FLOAT, 24), buf.get(JAVA_FLOAT, 28), buf.get(JAVA_FLOAT, 32));
 				Vector3 o = new Vector3(buf.get(JAVA_FLOAT, 36), buf.get(JAVA_FLOAT, 40), buf.get(JAVA_FLOAT, 44));
 				return new Transform3D(b, o);
-			} catch (Throwable ignored) {
+			} catch (Throwable t) {
+				logger.error("Transform3D extractor failed", t);
 			}
 		}
 		return new Transform3D();
@@ -491,7 +582,8 @@ public final class VariantUtils {
 				return new Transform2D(new Vector2(buf.get(JAVA_FLOAT, 0), buf.get(JAVA_FLOAT, 4)),
 						new Vector2(buf.get(JAVA_FLOAT, 8), buf.get(JAVA_FLOAT, 12)),
 						new Vector2(buf.get(JAVA_FLOAT, 16), buf.get(JAVA_FLOAT, 20)));
-			} catch (Throwable ignored) {
+			} catch (Throwable t) {
+				logger.error("Transform2D extractor failed", t);
 			}
 		}
 		return new Transform2D();
@@ -512,7 +604,8 @@ public final class VariantUtils {
 								buf.get(JAVA_FLOAT, 44)),
 						new Vector4(buf.get(JAVA_FLOAT, 48), buf.get(JAVA_FLOAT, 52), buf.get(JAVA_FLOAT, 56),
 								buf.get(JAVA_FLOAT, 60)));
-			} catch (Throwable ignored) {
+			} catch (Throwable t) {
+				logger.error("Projection extractor failed", t);
 			}
 		}
 		return new Projection();
@@ -711,7 +804,8 @@ public final class VariantUtils {
 				Variant v = Variant.allocate();
 				ctor.invoke(v.getSegment(), buf);
 				return v;
-			} catch (Throwable ignored) {
+			} catch (Throwable err) {
+				logger.error("Transform2D type constructor failed", err);
 			}
 		}
 		return Variant.fromNil();
@@ -774,7 +868,8 @@ public final class VariantUtils {
 				Variant v = Variant.allocate();
 				ctor.invoke(v.getSegment(), buf);
 				return v;
-			} catch (Throwable ignored) {
+			} catch (Throwable err) {
+				logger.error("Transform3D type constructor failed", err);
 			}
 		}
 		return Variant.fromNil();
@@ -814,7 +909,8 @@ public final class VariantUtils {
 				Variant v = Variant.allocate();
 				ctor.invoke(v.getSegment(), buf);
 				return v;
-			} catch (Throwable ignored) {
+			} catch (Throwable err) {
+				logger.error("AABB type constructor failed", err);
 			}
 		}
 		return Variant.fromNil();
@@ -837,7 +933,8 @@ public final class VariantUtils {
 				Variant v = Variant.allocate();
 				ctor.invoke(v.getSegment(), buf);
 				return v;
-			} catch (Throwable ignored) {
+			} catch (Throwable err) {
+				logger.error("Basis type constructor failed", err);
 			}
 		}
 		return Variant.fromNil();
@@ -867,7 +964,8 @@ public final class VariantUtils {
 				Variant v = Variant.allocate();
 				ctor.invoke(v.getSegment(), buf);
 				return v;
-			} catch (Throwable ignored) {
+			} catch (Throwable err) {
+				logger.error("Projection type constructor failed", err);
 			}
 		}
 		return Variant.fromNil();
