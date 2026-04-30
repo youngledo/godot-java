@@ -65,6 +65,8 @@ cd my-godot-game
 
 ### Maven
 
+> Check the latest version on [Maven Central](https://central.sonatype.com/artifact/io.github.youngledo/godot-java-core)
+
 Edit `pom.xml` and add godot-java-core inside `<dependencies>`:
 
 ```xml
@@ -72,7 +74,7 @@ Edit `pom.xml` and add godot-java-core inside `<dependencies>`:
     <dependency>
         <groupId>io.github.youngledo</groupId>
         <artifactId>godot-java-core</artifactId>
-        <version>0.1.0</version>
+        <version>VERSION</version> <!-- replace with latest -->
     </dependency>
 </dependencies>
 ```
@@ -89,7 +91,7 @@ Set the Java 25 compiler target:
 
 ```kotlin
 dependencies {
-    implementation("io.github.youngledo:godot-java-core:0.1.0")
+    implementation("io.github.youngledo:godot-java-core:VERSION") // replace with latest
 }
 
 java {
@@ -103,7 +105,7 @@ java {
 
 ```groovy
 dependencies {
-    implementation 'io.github.youngledo:godot-java-core:0.1.0'
+    implementation 'io.github.youngledo:godot-java-core:VERSION' // replace with latest
 }
 
 java {

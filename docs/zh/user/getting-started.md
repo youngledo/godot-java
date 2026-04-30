@@ -58,6 +58,8 @@ cd my-godot-game
 
 ### Maven
 
+> 在 [Maven Central](https://central.sonatype.com/artifact/io.github.youngledo/godot-java-core) 查看最新版本号
+
 编辑 `pom.xml`：
 
 ```xml
@@ -69,7 +71,7 @@ cd my-godot-game
     <dependency>
         <groupId>io.github.youngledo</groupId>
         <artifactId>godot-java-core</artifactId>
-        <version>0.1.0</version>
+        <version>VERSION</version> <!-- 替换为最新版本 -->
     </dependency>
 </dependencies>
 ```
@@ -78,7 +80,7 @@ cd my-godot-game
 
 ```kotlin
 dependencies {
-    implementation("io.github.youngledo:godot-java-core:0.1.0")
+    implementation("io.github.youngledo:godot-java-core:VERSION") // 替换为最新版本
 }
 
 java {
@@ -92,7 +94,7 @@ java {
 
 ```groovy
 dependencies {
-    implementation 'io.github.youngledo:godot-java-core:0.1.0'
+    implementation 'io.github.youngledo:godot-java-core:VERSION' // 替换为最新版本
 }
 
 java {
