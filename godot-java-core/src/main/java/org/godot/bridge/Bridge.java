@@ -62,12 +62,13 @@ public final class Bridge {
 	private static final ScopedValue<Boolean> IN_UPCALL = ScopedValue.newInstance();
 
 	/**
-	 * Scoped value for call-path temporary arenas. When bound (via
-	 * {@link #runScoped}), allocations go to the scoped arena which is freed on
-	 * scope exit. When unbound (registration phase), allocations fall back to the
-	 * persistent {@link #ARENA}.
+	 * Combined scope context: temporary arena + call depth. Replaces the former
+	 * CALL_ARENA + CALL_DEPTH with a single ScopedValue lookup.
 	 */
-	private static final ScopedValue<Arena> CALL_ARENA = ScopedValue.newInstance();
+	record ScopeContext(Arena arena, int depth) {
+	}
+
+	private static final ScopedValue<ScopeContext> SCOPE_CTX = ScopedValue.newInstance();
 
 	// ------------------------------------------------------------------------
 	// Pre-allocated call frame (eliminates per-call Arena creation)
@@ -89,12 +90,10 @@ public final class Bridge {
 	/** Pre-allocated memory for all call frames. */
 	private static final MemorySegment CALL_FRAMES = ARENA.allocate(FRAME_SIZE * MAX_CALL_DEPTH, 8);
 
-	/** Scoped depth tracker for re-entrant call partitioning. */
-	private static final ScopedValue<Integer> CALL_DEPTH = ScopedValue.newInstance();
-
 	/** Get current call nesting depth (0 = top-level). */
 	public static int callDepth() {
-		return CALL_DEPTH.orElse(0);
+		ScopeContext ctx = SCOPE_CTX.orElse(null);
+		return ctx != null ? ctx.depth() : 0;
 	}
 
 	/** Get arg Variant slot at given depth and index. */
@@ -118,17 +117,18 @@ public final class Bridge {
 				(long) MAX_CALL_ARGS * 8);
 	}
 
-	/** Execute an action with incremented call depth for re-entrant safety. */
+	/**
+	 * No-op: depth tracking is now handled by ScopeContext in runScoped. Kept for
+	 * API compatibility.
+	 */
 	public static <T> T withCallDepth(int depth, java.util.concurrent.Callable<T> action) {
-		return ScopedValue.where(CALL_DEPTH, depth + 1).call(() -> {
-			try {
-				return action.call();
-			} catch (RuntimeException e) {
-				throw e;
-			} catch (Exception e) {
-				throw new RuntimeException(e);
-			}
-		});
+		try {
+			return action.call();
+		} catch (RuntimeException e) {
+			throw e;
+		} catch (Exception e) {
+			throw new RuntimeException(e);
+		}
 	}
 
 	// ------------------------------------------------------------------------
@@ -235,11 +235,12 @@ public final class Bridge {
 	// ------------------------------------------------------------------------
 
 	/**
-	 * Get the active arena. Returns the call-scoped arena if one is bound (via
-	 * {@link #runScoped}), otherwise the persistent registration arena.
+	 * Get the active arena. Returns the call-scoped arena from ScopeContext if in a
+	 * call chain, otherwise the persistent registration arena.
 	 */
 	public static Arena arena() {
-		return CALL_ARENA.orElse(ARENA);
+		ScopeContext ctx = SCOPE_CTX.orElse(null);
+		return ctx != null ? ctx.arena() : ARENA;
 	}
 
 	/**
@@ -261,23 +262,28 @@ public final class Bridge {
 	}
 
 	/**
-	 * Execute an action within a scoped arena for temporary allocations. All
-	 * allocations made via {@link #allocVariant()}, {@link #allocate(long)}, and
-	 * {@link #arena()} within the action will use the scoped arena, which is freed
-	 * when the action completes. Nested calls create nested scopes automatically.
-	 *
-	 * <pre>
-	 * Object result = Bridge.runScoped(() -> {
-	 * 	// allocations here are temporary
-	 * 	return godot.call("some_method");
-	 * });
-	 * // scoped arena freed here
-	 * </pre>
+	 * Execute an action within a scoped arena for temporary allocations. For
+	 * top-level calls, creates a new Arena. For nested calls (re-entrant), reuses
+	 * the parent's Arena and increments depth — eliminating Arena creation overhead
+	 * and reducing ScopedValue bindings.
 	 */
 	public static <T> T runScoped(java.util.concurrent.Callable<T> action) {
+		ScopeContext prev = SCOPE_CTX.orElse(null);
+		if (prev != null) {
+			// Nested call: reuse arena, increment depth
+			ScopeContext ctx = new ScopeContext(prev.arena(), prev.depth() + 1);
+			try {
+				return ScopedValue.where(SCOPE_CTX, ctx).call(action::call);
+			} catch (RuntimeException e) {
+				throw e;
+			} catch (Exception e) {
+				throw new RuntimeException(e);
+			}
+		}
 		Arena scope = Arena.ofShared();
+		ScopeContext ctx = new ScopeContext(scope, 0);
 		try {
-			return ScopedValue.where(CALL_ARENA, scope).call(action::call);
+			return ScopedValue.where(SCOPE_CTX, ctx).call(action::call);
 		} catch (RuntimeException e) {
 			throw e;
 		} catch (Exception e) {
@@ -288,12 +294,20 @@ public final class Bridge {
 	}
 
 	/**
-	 * Execute a void action within a scoped arena.
+	 * Execute a void action within a scoped arena. Reuses parent arena and
+	 * increments depth for nested calls.
 	 */
 	public static void runScoped(Runnable action) {
+		ScopeContext prev = SCOPE_CTX.orElse(null);
+		if (prev != null) {
+			ScopeContext ctx = new ScopeContext(prev.arena(), prev.depth() + 1);
+			ScopedValue.where(SCOPE_CTX, ctx).run(action);
+			return;
+		}
 		Arena scope = Arena.ofShared();
+		ScopeContext ctx = new ScopeContext(scope, 0);
 		try {
-			ScopedValue.where(CALL_ARENA, scope).run(action);
+			ScopedValue.where(SCOPE_CTX, ctx).run(action);
 		} finally {
 			scope.close();
 		}

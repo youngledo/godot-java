@@ -153,7 +153,81 @@ public final class Vector3 {
 	}
 
 	// ------------------------------------------------------------------------
-	// Arithmetic operators
+	// Mutable operations (modify in-place, return this)
+	// ------------------------------------------------------------------------
+
+	/**
+	 * Set all components. Returns this for chaining.
+	 */
+	public Vector3 set(double x, double y, double z) {
+		this.x = x;
+		this.y = y;
+		this.z = z;
+		return this;
+	}
+
+	/**
+	 * Copy values from another vector. Returns this for chaining.
+	 */
+	public Vector3 set(Vector3 other) {
+		this.x = other.x;
+		this.y = other.y;
+		this.z = other.z;
+		return this;
+	}
+
+	/**
+	 * Add in-place. Returns this for chaining.
+	 */
+	public Vector3 addInto(Vector3 other) {
+		this.x += other.x;
+		this.y += other.y;
+		this.z += other.z;
+		return this;
+	}
+
+	/**
+	 * Subtract in-place. Returns this for chaining.
+	 */
+	public Vector3 subInto(Vector3 other) {
+		this.x -= other.x;
+		this.y -= other.y;
+		this.z -= other.z;
+		return this;
+	}
+
+	/**
+	 * Scale in-place. Returns this for chaining.
+	 */
+	public Vector3 mulInto(double scalar) {
+		this.x *= scalar;
+		this.y *= scalar;
+		this.z *= scalar;
+		return this;
+	}
+
+	/**
+	 * Lerp in-place toward another vector. Returns this for chaining.
+	 */
+	public Vector3 lerpInto(Vector3 other, double t) {
+		this.x += (other.x - this.x) * t;
+		this.y += (other.y - this.y) * t;
+		this.z += (other.z - this.z) * t;
+		return this;
+	}
+
+	/**
+	 * Clamp all components in-place. Returns this for chaining.
+	 */
+	public Vector3 clampInto(double minVal, double maxVal) {
+		this.x = Math.max(minVal, Math.min(maxVal, this.x));
+		this.y = Math.max(minVal, Math.min(maxVal, this.y));
+		this.z = Math.max(minVal, Math.min(maxVal, this.z));
+		return this;
+	}
+
+	// ------------------------------------------------------------------------
+	// Arithmetic operators (immutable — allocate new Vector3)
 	// ------------------------------------------------------------------------
 
 	public Vector3 add(Vector3 other) {
