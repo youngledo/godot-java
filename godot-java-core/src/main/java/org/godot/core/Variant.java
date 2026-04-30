@@ -223,7 +223,6 @@ public final class Variant {
 	 * get_variant_from_type_constructor for proper construction.
 	 */
 	public static Variant fromString(String javaString) {
-		// Create the native Godot String
 		GodotString godotString = GodotString.fromJavaString(javaString);
 		MemorySegment strBuf = godotString.buffer();
 
@@ -237,6 +236,8 @@ public final class Variant {
 			return v;
 		} catch (Throwable t) {
 			throw new org.godot.exception.GodotException("stringConstructor.invoke failed", t);
+		} finally {
+			godotString.destroy();
 		}
 	}
 
@@ -262,17 +263,18 @@ public final class Variant {
 	/** Create a String Variant directly into a pre-allocated slot. */
 	public static void fromStringInto(String javaString, MemorySegment target) {
 		GodotString godotString = GodotString.fromJavaString(javaString);
-		if (stringConstructor != null) {
-			try {
+		try {
+			if (stringConstructor != null) {
 				stringConstructor.invoke(target, godotString.buffer());
 				return;
-			} catch (Throwable t) {
 			}
+		} catch (Throwable _) {
 		}
 		// Safe fallback: create proper Variant and copy
 		Variant v = fromString(javaString);
 		Bridge.callVoid(org.godot.internal.api.ApiIndex.VARIANT_NEW_COPY, target, v.getSegment());
 		Bridge.destroyVariant(v.getSegment());
+		godotString.destroy();
 	}
 
 	/** Create a StringName Variant directly into a pre-allocated slot. */

@@ -2,7 +2,10 @@ package org.godot.core;
 
 import org.godot.bridge.Bridge;
 import org.godot.internal.api.ApiIndex;
+import java.lang.foreign.FunctionDescriptor;
+import java.lang.foreign.Linker;
 import java.lang.foreign.MemorySegment;
+import java.lang.invoke.MethodHandle;
 import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 
 /**
@@ -16,6 +19,20 @@ public final class GodotString {
 
 	/** Pointer to native Godot String struct. */
 	private final MemorySegment ptr;
+
+	/** Lazy-loaded string_destroy function handle. */
+	private static volatile MethodHandle stringDestroy;
+
+	static {
+		try {
+			long addr = org.godot.bootstrap.Bootstrap.getProcAddressImpl("string_destroy");
+			if (addr != 0) {
+				stringDestroy = Linker.nativeLinker().downcallHandle(MemorySegment.ofAddress(addr),
+						FunctionDescriptor.ofVoid(java.lang.foreign.ValueLayout.ADDRESS));
+			}
+		} catch (Exception _) {
+		}
+	}
 
 	// ------------------------------------------------------------------------
 	// Constructors
@@ -109,6 +126,20 @@ public final class GodotString {
 	/** Check if this is a null string. */
 	public boolean isNull() {
 		return ptr.address() == 0;
+	}
+
+	/**
+	 * Destroy the native Godot String, decrementing its CowData reference count.
+	 * Must be called when the string is no longer needed (e.g., after copying into
+	 * a Variant via type constructor). Safe to call on null strings (no-op).
+	 */
+	public void destroy() {
+		if (stringDestroy != null && ptr.address() != 0) {
+			try {
+				stringDestroy.invoke(ptr);
+			} catch (Throwable _) {
+			}
+		}
 	}
 
 	// ------------------------------------------------------------------------

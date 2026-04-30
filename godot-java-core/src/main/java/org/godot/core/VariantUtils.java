@@ -314,7 +314,10 @@ public final class VariantUtils {
 		if (type == VariantType.STRING_NAME.id()) {
 			MemorySegment retBuf = Bridge.allocate(8);
 			Bridge.callVoid(ApiIndex.VARIANT_STRINGIFY, seg, retBuf);
-			return new GodotString(retBuf).toJavaString();
+			GodotString gs = new GodotString(retBuf);
+			String result = gs.toJavaString();
+			gs.destroy();
+			return result;
 		}
 		if (type == VariantType.VECTOR2.id())
 			return readVector2(seg);

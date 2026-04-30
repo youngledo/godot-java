@@ -269,6 +269,7 @@ public final class InstanceCallbacks {
 			MemorySegment retSeg = MemorySegment.ofAddress(retPtr).reinterpret(Variant.SIZE);
 			MemorySegment srcSeg = variant.getSegment().reinterpret(Variant.SIZE);
 			MemorySegment.copy(srcSeg, 0, retSeg, 0, Variant.SIZE);
+			Bridge.destroyVariant(srcSeg);
 			return 1;
 		} catch (Exception e) {
 			logger.error("getPropertyFunc variant conversion failed for {}.{}: {}", className, propName,
@@ -291,7 +292,10 @@ public final class InstanceCallbacks {
 			// Use variant_stringify to convert to String
 			MemorySegment retBuf = Bridge.allocate(8);
 			Bridge.callVoid(org.godot.internal.api.ApiIndex.VARIANT_STRINGIFY, variantBuf, retBuf);
-			return new org.godot.core.GodotString(retBuf).toJavaString();
+			org.godot.core.GodotString gs = new org.godot.core.GodotString(retBuf);
+			String result = gs.toJavaString();
+			gs.destroy();
+			return result;
 		} catch (Exception e) {
 			logger.error("stringNamePtrToString failed: {}", e.getMessage());
 			return "";
@@ -593,6 +597,7 @@ public final class InstanceCallbacks {
 			Variant variant = VariantUtils.fromObject(defaultVal);
 			MemorySegment retSeg = MemorySegment.ofAddress(retPtr).reinterpret(Variant.SIZE);
 			MemorySegment.copy(variant.getSegment().reinterpret(Variant.SIZE), 0, retSeg, 0, Variant.SIZE);
+			Bridge.destroyVariant(variant.getSegment());
 			return 1;
 		} catch (Exception e) {
 			logger.trace("propertyGetRevertFunc failed for {}.{}: {}", className, propName, e.getMessage());
