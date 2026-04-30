@@ -3,7 +3,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.1.0 https://maven.apache.org/xsd/maven-4.1.0.xsd">
 
 
-    <groupId>org.godot</groupId>
+    <groupId>io.github.youngledo</groupId>
     <artifactId>godot-java</artifactId>
     <version>0.1.0</version>
     <packaging>pom</packaging>
@@ -31,17 +31,6 @@
         <developerConnection>scm:git:git@github.com:youngledo/godot-java.git</developerConnection>
         <url>https://github.com/youngledo/godot-java</url>
     </scm>
-
-    <distributionManagement>
-        <snapshotRepository>
-            <id>sonatype-oss-snapshots</id>
-            <url>https://s01.oss.sonatype.org/content/repositories/snapshots/</url>
-        </snapshotRepository>
-        <repository>
-            <id>sonatype-oss-staging</id>
-            <url>https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/</url>
-        </repository>
-    </distributionManagement>
 
     <properties>
         <maven.compiler.release>25</maven.compiler.release>

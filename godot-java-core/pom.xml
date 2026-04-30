@@ -21,7 +21,7 @@
 
     <dependencies>
         <dependency>
-            <groupId>org.godot</groupId>
+            <groupId>io.github.youngledo</groupId>
             <artifactId>godot-java-code-generator</artifactId>
             <optional>true</optional>
         </dependency>
