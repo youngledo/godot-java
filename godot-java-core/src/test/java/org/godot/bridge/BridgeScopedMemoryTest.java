@@ -53,21 +53,26 @@ public class BridgeScopedMemoryTest {
 	}
 
 	@Test
-	void runScoped_nestedCreatesSeparateArenas() {
+	void runScoped_nestedReusesParentArena() {
 		Arena[] outerArena = {null};
 		Arena[] innerArena = {null};
+		int[] outerDepth = {0};
+		int[] innerDepth = {0};
 
 		Bridge.runScoped(() -> {
 			outerArena[0] = Bridge.arena();
+			outerDepth[0] = Bridge.callDepth();
 			Bridge.runScoped(() -> {
 				innerArena[0] = Bridge.arena();
-				assertNotSame(outerArena[0], innerArena[0], "Nested scope should have a different arena");
+				innerDepth[0] = Bridge.callDepth();
+				assertSame(outerArena[0], innerArena[0], "Nested scope should reuse parent arena");
+				assertEquals(outerDepth[0] + 1, innerDepth[0], "Nested scope should increment depth");
 			});
 			assertSame(outerArena[0], Bridge.arena(), "After inner scope, outer arena should be restored");
+			assertEquals(outerDepth[0], Bridge.callDepth(), "After inner scope, depth should be restored");
 		});
 
 		assertNotNull(outerArena[0]);
-		assertNotNull(innerArena[0]);
 	}
 
 	@Test
