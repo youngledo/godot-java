@@ -63,12 +63,14 @@ cd my-godot-game
 
 ## Step 2: Add the Dependency
 
+### Maven
+
 Edit `pom.xml` and add godot-java-core inside `<dependencies>`:
 
 ```xml
 <dependencies>
     <dependency>
-        <groupId>org.godot</groupId>
+        <groupId>io.github.youngledo</groupId>
         <artifactId>godot-java-core</artifactId>
         <version>0.1.0</version>
     </dependency>
@@ -83,15 +85,33 @@ Set the Java 25 compiler target:
 </properties>
 ```
 
-> If the artifact is not yet on Maven Central, download the JAR from [GitHub Releases](https://github.com/youngledo/godot-java/releases) and install it locally:
-> ```bash
-> mvn install:install-file \
->   -Dfile=godot-java-core-0.1.0.jar \
->   -DgroupId=org.godot \
->   -DartifactId=godot-java-core \
->   -Dversion=0.1.0 \
->   -Dpackaging=jar
-> ```
+### Gradle (Kotlin DSL)
+
+```kotlin
+dependencies {
+    implementation("io.github.youngledo:godot-java-core:0.1.0")
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+```
+
+### Gradle (Groovy DSL)
+
+```groovy
+dependencies {
+    implementation 'io.github.youngledo:godot-java-core:0.1.0'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+```
 
 ## Step 3: Write Your First Godot Class
 

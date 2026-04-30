@@ -127,7 +127,7 @@ godot-java/                     # 父 POM (org.godot:godot-java:0.1.0)
 ### 父 POM 关键配置
 
 ```xml
-<groupId>org.godot</groupId>
+<groupId>io.github.youngledo</groupId>
 <artifactId>godot-java</artifactId>
 <version>0.1.0</version>
 <packaging>pom</packaging>

@@ -59,7 +59,7 @@ The project has a parent POM with two child modules:
 
 ```
 godot-java (parent POM)
-  |-- pom.xml    groupId: org.godot, artifactId: godot-java, version: 0.1.0
+  |-- pom.xml    groupId: io.github.youngledo, artifactId: godot-java, version: 0.1.0
   |
   |-- godot-java-core/
   |     pom.xml  artifactId: godot-java-core
@@ -81,7 +81,7 @@ godot-java (parent POM)
 ### Parent POM Key Properties
 
 ```xml
-<groupId>org.godot</groupId>
+<groupId>io.github.youngledo</groupId>
 <artifactId>godot-java</artifactId>
 <version>0.1.0</version>
 <packaging>pom</packaging>

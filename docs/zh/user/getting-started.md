@@ -56,6 +56,8 @@ cd my-godot-game
 
 ## 第二步：添加依赖
 
+### Maven
+
 编辑 `pom.xml`：
 
 ```xml
@@ -65,15 +67,40 @@ cd my-godot-game
 
 <dependencies>
     <dependency>
-        <groupId>org.godot</groupId>
+        <groupId>io.github.youngledo</groupId>
         <artifactId>godot-java-core</artifactId>
         <version>0.1.0</version>
     </dependency>
 </dependencies>
 ```
 
-> 如果项目尚未发布到 Maven Central，可以从源码构建后安装到本地仓库：
-> `mvn install -DskipTests -Dcheckstyle.skip=true`
+### Gradle (Kotlin DSL)
+
+```kotlin
+dependencies {
+    implementation("io.github.youngledo:godot-java-core:0.1.0")
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+```
+
+### Gradle (Groovy DSL)
+
+```groovy
+dependencies {
+    implementation 'io.github.youngledo:godot-java-core:0.1.0'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+```
 
 ## 第三步：编写 Java 类
 
