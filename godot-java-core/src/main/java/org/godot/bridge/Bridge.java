@@ -70,6 +70,9 @@ public final class Bridge {
 
 	private static final ScopedValue<ScopeContext> SCOPE_CTX = ScopedValue.newInstance();
 
+	/** Sentinel for "no scope bound". ScopedValue.orElse() rejects null. */
+	private static final ScopeContext NO_SCOPE = new ScopeContext(null, -1);
+
 	// ------------------------------------------------------------------------
 	// Pre-allocated call frame (eliminates per-call Arena creation)
 	// ------------------------------------------------------------------------
@@ -92,8 +95,8 @@ public final class Bridge {
 
 	/** Get current call nesting depth (0 = top-level). */
 	public static int callDepth() {
-		ScopeContext ctx = SCOPE_CTX.orElse(null);
-		return ctx != null ? ctx.depth() : 0;
+		ScopeContext ctx = SCOPE_CTX.orElse(NO_SCOPE);
+		return ctx != NO_SCOPE ? ctx.depth() : 0;
 	}
 
 	/** Get arg Variant slot at given depth and index. */
@@ -239,8 +242,8 @@ public final class Bridge {
 	 * call chain, otherwise the persistent registration arena.
 	 */
 	public static Arena arena() {
-		ScopeContext ctx = SCOPE_CTX.orElse(null);
-		return ctx != null ? ctx.arena() : ARENA;
+		ScopeContext ctx = SCOPE_CTX.orElse(NO_SCOPE);
+		return ctx != NO_SCOPE ? ctx.arena() : ARENA;
 	}
 
 	/**
@@ -268,8 +271,8 @@ public final class Bridge {
 	 * and reducing ScopedValue bindings.
 	 */
 	public static <T> T runScoped(java.util.concurrent.Callable<T> action) {
-		ScopeContext prev = SCOPE_CTX.orElse(null);
-		if (prev != null) {
+		ScopeContext prev = SCOPE_CTX.orElse(NO_SCOPE);
+		if (prev != NO_SCOPE) {
 			// Nested call: reuse arena, increment depth
 			ScopeContext ctx = new ScopeContext(prev.arena(), prev.depth() + 1);
 			try {
@@ -298,8 +301,8 @@ public final class Bridge {
 	 * increments depth for nested calls.
 	 */
 	public static void runScoped(Runnable action) {
-		ScopeContext prev = SCOPE_CTX.orElse(null);
-		if (prev != null) {
+		ScopeContext prev = SCOPE_CTX.orElse(NO_SCOPE);
+		if (prev != NO_SCOPE) {
 			ScopeContext ctx = new ScopeContext(prev.arena(), prev.depth() + 1);
 			ScopedValue.where(SCOPE_CTX, ctx).run(action);
 			return;
