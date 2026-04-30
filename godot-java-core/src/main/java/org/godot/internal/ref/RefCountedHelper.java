@@ -139,4 +139,16 @@ public final class RefCountedHelper {
 			// Object may already be freed
 		}
 	}
+
+	/**
+	 * Bulk cleanup: unreferences all tracked pointers and clears the REFFED map.
+	 * Called during SCENE-level deinitialization, before the JVM is destroyed.
+	 */
+	public static void cleanup() {
+		java.util.Set<Long> keys = new java.util.HashSet<>(REFFED.keySet());
+		for (Long ptr : keys) {
+			unreference(ptr);
+		}
+		REFFED.clear();
+	}
 }

@@ -74,6 +74,20 @@ public final class Bootstrap {
 		}
 	}
 
+	/**
+	 * Phase 3: Cleanup all Java-side references before JVM destruction. Called from
+	 * C++ at SCENE deinitialization level.
+	 */
+	public static void cleanup() {
+		try {
+			org.godot.internal.ref.JavaObjectMap.cleanup();
+			org.godot.internal.ref.RefCountedHelper.cleanup();
+			logger.info("Cleanup complete.");
+		} catch (Throwable t) {
+			logger.error("cleanup() failed", t);
+		}
+	}
+
 	// ------------------------------------------------------------------------
 	// JNI native methods
 	// ------------------------------------------------------------------------

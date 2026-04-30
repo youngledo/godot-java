@@ -823,6 +823,25 @@ static void godot_java_initialize(void *userdata, GDExtensionInitializationLevel
 
 static void godot_java_deinitialize(void *userdata, GDExtensionInitializationLevel p_level) {
     std::cout << "godot-java: deinitialize level " << p_level << std::endl;
+
+    if (p_level == GDEXTENSION_INITIALIZATION_SCENE && g_jni_env) {
+        JNIEnv* env = g_jni_env;
+        jclass bootstrap_class = env->FindClass("org/godot/bootstrap/Bootstrap");
+        if (bootstrap_class) {
+            jmethodID cleanup_method = env->GetStaticMethodID(bootstrap_class, "cleanup", "()V");
+            if (cleanup_method) {
+                env->CallStaticVoidMethod(bootstrap_class, cleanup_method);
+                if (env->ExceptionOccurred()) {
+                    std::cerr << "godot-java: Bootstrap.cleanup() threw exception" << std::endl;
+                    env->ExceptionDescribe();
+                    env->ExceptionClear();
+                } else {
+                    std::cout << "godot-java: Cleanup completed at SCENE level" << std::endl;
+                }
+            }
+        }
+    }
+
     if (p_level == GDEXTENSION_INITIALIZATION_CORE) {
         cleanup_jvm();
     }

@@ -58,4 +58,21 @@ public final class JavaObjectMap {
 	public static boolean contains(long nativePtr) {
 		return NATIVE_TO_JAVA.containsKey(nativePtr);
 	}
+
+	/**
+	 * Bulk cleanup: unreferences all tracked RefCounted objects and clears both
+	 * maps. Called during SCENE-level deinitialization, before the JVM is
+	 * destroyed.
+	 */
+	public static void cleanup() {
+		java.util.Set<Long> keys = new java.util.HashSet<>(NATIVE_TO_JAVA.keySet());
+		for (Long nativePtr : keys) {
+			RefCountedHelper.unreference(nativePtr);
+			Godot obj = NATIVE_TO_JAVA.remove(nativePtr);
+			if (obj != null) {
+				JAVA_TO_NATIVE.remove(obj);
+				obj.invalidate();
+			}
+		}
+	}
 }
