@@ -19,8 +19,32 @@ public class Spawner extends Node {
 
 	@Override
 	public void _ready() {
-		Node[] children = get_children(false);
-		logger.info("Spawner ready! Children: {}", children.length);
+		// Build initial node tree
+		Node player = Node.create();
+		player.setName("Player");
+		add_child(player, false, 0);
+
+		Node enemies = Node.create();
+		enemies.setName("Enemies");
+		add_child(enemies, false, 0);
+
+		Node enemy1 = Node.create();
+		enemy1.setName("Enemy1");
+		enemies.add_child(enemy1, false, 0);
+
+		Node enemy2 = Node.create();
+		enemy2.setName("Enemy2");
+		enemies.add_child(enemy2, false, 0);
+
+		logger.info("Initial tree:");
+		describeTree();
+
+		// Spawn additional children
+		spawnChild("JavaChild1");
+		spawnChild("JavaChild2");
+
+		logger.info("Tree after spawning:");
+		describeTree();
 	}
 
 	@GodotMethod

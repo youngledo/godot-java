@@ -9,8 +9,8 @@ import org.godot.node.Node;
 /**
  * Example 03: Godot Methods
  *
- * Demonstrates how to expose Java methods to GDScript. Methods annotated
- * with @GodotMethod can be called from GDScript.
+ * Demonstrates how to expose Java methods to Godot. Methods annotated
+ * with @GodotMethod can be called from GDScript or other Godot languages.
  */
 @GodotClass(name = "Calculator", parent = "Node")
 public class Calculator extends Node {
@@ -19,7 +19,14 @@ public class Calculator extends Node {
 
 	@Override
 	public void _ready() {
-		logger.info("Calculator ready! Call methods from GDScript.");
+		logger.info("Calculator ready!");
+
+		logger.info("--- @GodotMethod Self-Test ---");
+		logger.info("add(3, 5) = {}", add(3, 5));
+		logger.info("multiply(4, 7) = {}", multiply(4, 7));
+		logger.info("greet('Godot') = {}", greet("Godot"));
+		logger.info("isEven(42) = {}", isEven(42));
+		logger.info("isEven(13) = {}", isEven(13));
 	}
 
 	@GodotMethod

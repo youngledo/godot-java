@@ -1,6 +1,27 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
-[ext_resource type="Script" path="res://main.gd" id="1_main"]
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_player"]
+size = Vector2(30, 40)
 
-[node name="Root" type="Node2D"]
-script = ExtResource("1_main")
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_floor"]
+
+[node name="Player" type="Player"]
+position = Vector2(300, 200)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("RectangleShape2D_player")
+
+[node name="Floor" type="StaticBody2D" parent="."]
+position = Vector2(300, 400)
+collision_mask = 0
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Floor"]
+shape = SubResource("RectangleShape2D_floor")
+debug_color = Color(0.254902, 0.411765, 0.882353, 0.419608)
+
+[node name="FloorVisual" type="ColorRect" parent="Floor"]
+offset_left = -300.0
+offset_top = -10.0
+offset_right = 300.0
+offset_bottom = 10.0
+color = Color(0.403922, 0.403922, 0.403922, 1)

@@ -11,7 +11,7 @@ import org.godot.node.Node;
  * Example 04: Signals
  *
  * Demonstrates how to declare signals in Java and emit them. Signals allow Java
- * objects to notify GDScript of events.
+ * objects to notify other objects of events.
  */
 @GodotClass(name = "EventBus", parent = "Node")
 public class EventBus extends Node {
@@ -31,18 +31,24 @@ public class EventBus extends Node {
 	@Override
 	public void _ready() {
 		logger.info("EventBus ready! Signals: scoreChanged, levelCompleted");
+
+		logger.info("--- Signal Self-Test ---");
+		addScore(10);
+		addScore(25);
+		completeLevel("Level 1");
+		logger.info("Final score: {}", getScore());
 	}
 
 	@GodotMethod
 	public void addScore(int points) {
 		score += points;
-		logger.info("Score updated: {}", score);
+		logger.info("Score updated: {} (emit scoreChanged)", score);
 		call("emit_signal", "scoreChanged", score);
 	}
 
 	@GodotMethod
 	public void completeLevel(String name) {
-		logger.info("Level completed: {} with score {}", name, score);
+		logger.info("Level completed: {} with score {} (emit levelCompleted)", name, score);
 		call("emit_signal", "levelCompleted", name, score);
 	}
 

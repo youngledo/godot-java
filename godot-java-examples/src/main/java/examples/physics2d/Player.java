@@ -4,9 +4,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.godot.annotation.Export;
 import org.godot.annotation.GodotClass;
-import org.godot.annotation.GodotMethod;
 import org.godot.math.Vector2;
 import org.godot.node.Node2D;
+import org.godot.singleton.Input;
 
 /**
  * Example 07: Physics 2D
@@ -31,29 +31,28 @@ public class Player extends Node2D {
 	public double jumpVelocity = -400.0;
 
 	private double gravity = 980.0;
-	private double direction = 0;
 
 	@Override
 	public void _ready() {
-		logger.info("Player ready! speed={} jumpVelocity={}", speed, jumpVelocity);
-	}
-
-	@GodotMethod
-	public void setDirection(double dir) {
-		this.direction = dir;
-	}
-
-	@GodotMethod
-	public void jump() {
-		boolean onFloor = (boolean) call("is_on_floor");
-		if (onFloor) {
-			Vector2 vel = (Vector2) call("get_velocity");
-			call("set_velocity", new Vector2(vel.x, jumpVelocity));
-		}
+		logger.info("Player ready! Use WASD or Arrow keys to move. speed={} jumpVelocity={}", speed, jumpVelocity);
 	}
 
 	@Override
 	public void _physicsProcess(double delta) {
+		Input input = Input.singleton();
+
+		// Read input direction
+		double direction = input.get_axis("move_left", "move_right");
+
+		// Jump
+		if (input.is_action_just_pressed("jump", false)) {
+			boolean onFloor = (boolean) call("is_on_floor");
+			if (onFloor) {
+				Vector2 vel = (Vector2) call("get_velocity");
+				call("set_velocity", new Vector2(vel.x, jumpVelocity));
+			}
+		}
+
 		Vector2 vel = (Vector2) call("get_velocity");
 
 		// Apply gravity
