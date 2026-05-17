@@ -308,10 +308,52 @@ jobs:
           PY
 
       - name: Build and publish
+        id: maven-publish
         env:
           CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
           CENTRAL_TOKEN: ${{ secrets.CENTRAL_TOKEN }}
-        run: ./mvnw install org.sonatype.central:central-publishing-maven-plugin:0.10.0:publish -pl godot-java-core,godot-java-native -am -P release -Drevision="$REVISION" -Dgodot.java.native.attach.dir="$PWD/dist/native" -DautoPublish=true -Dmaven.consumer.pom.flatten=false -DskipTests -Dspotbugs.skip=true -Dspotless.skip=true -B
+        run: |
+          set +e
+          ./mvnw install org.sonatype.central:central-publishing-maven-plugin:0.10.0:publish \
+            -pl godot-java-core,godot-java-native -am -P release \
+            -Drevision="$REVISION" \
+            -Dgodot.java.native.attach.dir="$PWD/dist/native" \
+            -DautoPublish=true \
+            -Dmaven.consumer.pom.flatten=false \
+            -DskipTests -Dspotbugs.skip=true -Dspotless.skip=true -B \
+            2>&1 | tee maven-output.log
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          # Extract deployment ID for diagnostics
+          DEPLOYMENT_ID=$(grep -oP 'deploymentId:\s*\K[a-f0-9-]+' maven-output.log | tail -1)
+          echo "deployment_id=$DEPLOYMENT_ID" >> "$GITHUB_OUTPUT"
+          exit $(tail -1 maven-output.log | grep -c 'BUILD SUCCESS' || echo 1)
+
+      - name: Diagnose Sonatype deployment
+        if: failure()
+        env:
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+          CENTRAL_TOKEN: ${{ secrets.CENTRAL_TOKEN }}
+        run: |
+          DEPLOYMENT_ID="${{ steps.maven-publish.outputs.deployment_id }}"
+          if [ -n "$DEPLOYMENT_ID" ]; then
+            TOKEN=$(printf '%s' "$CENTRAL_USERNAME:$CENTRAL_TOKEN" | base64)
+            echo "=== Deployment Status ==="
+            curl -sf -X POST -H "Authorization: Bearer $TOKEN" \
+              "https://central.sonatype.com/api/v1/publisher/status?id=$DEPLOYMENT_ID" | python3 -m json.tool || true
+            echo ""
+            echo "=== Dropping failed deployment ==="
+            curl -sf -X DELETE -H "Authorization: Bearer $TOKEN" \
+              "https://central.sonatype.com/api/v1/publisher/deployment/$DEPLOYMENT_ID" && echo "Dropped" || echo "Drop failed"
+          else
+            echo "No deployment ID found in Maven output"
+          fi
+          echo ""
+          echo "=== Consumer POMs ==="
+          for f in $(find . -name 'consumer-*.pom' 2>/dev/null | head -5); do
+            echo "--- $f ---"
+            head -30 "$f"
+            echo ""
+          done
 
       - name: Attach native fallback artifacts to GitHub Release
         uses: softprops/action-gh-release@v2
