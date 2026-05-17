@@ -259,6 +259,11 @@ public final class VirtualDispatch {
 
 	static void callVirtualWithDataFunc(MemorySegment instance, MemorySegment namePtr,
 			MemorySegment virtualCallUserdata, MemorySegment args, MemorySegment ret) {
+		// Flush deferred tasks before processing virtual callbacks.
+		// This ensures runOnMainThread tasks are executed on the main thread
+		// during each frame tick (_process, _notification, etc.).
+		org.godot.internal.DeferredExecutor.flush();
+
 		long userdataId = virtualCallUserdata.address();
 		String methodName = USERDATA_TO_METHOD.get(userdataId);
 		if (methodName == null) {
@@ -281,6 +286,12 @@ public final class VirtualDispatch {
 		String godotClassName = resolveGodotClassName(obj);
 
 		if (godotClassName != null && Dispatch.isAvailable()) {
+			// In editor mode, suppress virtual callbacks for non-tool classes.
+			// This matches gdext's EditorRunBehavior.ToolClassesOnly behavior.
+			if (org.godot.singleton.Engine.singleton().isEditorHint() && !Dispatch.isToolClass(godotClassName)) {
+				writeNil(ret);
+				return;
+			}
 			try {
 				Dispatch.dispatchVirtual(godotClassName, methodName, instance, args, ret);
 				return;

@@ -1780,6 +1780,21 @@ public abstract class Godot {
 		}
 	}
 
+	/**
+	 * Schedule a task to run on the Godot main thread. If already on the main
+	 * thread, executes immediately. Otherwise, queues for execution at the next
+	 * main-thread tick.
+	 */
+	public static void runOnMainThread(Runnable task) {
+		if (task == null)
+			return;
+		if (org.godot.internal.ThreadChecker.isMainThread()) {
+			task.run();
+		} else {
+			org.godot.internal.DeferredExecutor.callDeferred(task);
+		}
+	}
+
 	public void onFreed() {
 	}
 

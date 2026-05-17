@@ -821,8 +821,9 @@ public final class InstanceCallbacks {
 		}
 
 		// Set mandatory fields
-		// is_exposed = true (byte offset 2, GDExtensionBool = uint8_t)
-		info.set(ValueLayout.JAVA_BYTE, StructOffsets.CREATION_INFO4_OFF_IS_EXPOSED, (byte) 1);
+		// is_exposed = true unless class is marked internal
+		boolean isInternal = Dispatch.isInternalClass(godotClassName);
+		info.set(ValueLayout.JAVA_BYTE, StructOffsets.CREATION_INFO4_OFF_IS_EXPOSED, isInternal ? (byte) 0 : (byte) 1);
 		// is_runtime = true (byte offset 3) — required by Godot 4.5+
 		info.set(ValueLayout.JAVA_BYTE, StructOffsets.CREATION_INFO4_OFF_IS_RUNTIME, (byte) 1);
 		// create_instance_func

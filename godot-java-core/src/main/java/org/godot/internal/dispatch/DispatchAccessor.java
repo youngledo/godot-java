@@ -47,4 +47,25 @@ public interface DispatchAccessor {
 
 	void dispatchVirtual(String godotClassName, String methodName, MemorySegment instance, MemorySegment args,
 			MemorySegment ret);
+
+	boolean isToolClass(String godotClassName);
+
+	boolean isSingletonClass(String godotClassName);
+
+	boolean isInternalClass(String godotClassName);
+
+	/** Returns constant entries as String[][]: each row is {name, value}. */
+	String[][] getConstants(String godotClassName);
+
+	/**
+	 * Returns virtual script methods as String[][]: each row is {godotName,
+	 * returnType, paramType1, ...}.
+	 */
+	String[][] getVirtualScriptMethods(String godotClassName);
+
+	/**
+	 * Returns Godot class reference XML for editor documentation, or null if no
+	 * docs were generated for this class.
+	 */
+	String getClassDocXml(String godotClassName);
 }

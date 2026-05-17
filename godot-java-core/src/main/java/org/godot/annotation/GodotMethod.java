@@ -25,4 +25,7 @@ import java.lang.annotation.*;
 public @interface GodotMethod {
 	/** Godot-side method name. Empty means use the Java method name. */
 	String value() default "";
+
+	/** If true, allows GDScript to override this method (script-virtual). */
+	boolean virtual() default false;
 }

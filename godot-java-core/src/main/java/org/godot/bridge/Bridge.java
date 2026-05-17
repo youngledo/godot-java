@@ -504,6 +504,19 @@ public final class Bridge {
 	}
 
 	/**
+	 * Call an API function with a MemorySegment and a primitive long. Used for APIs
+	 * like EDITOR_HELP_LOAD_XML_FROM_UTF8_CHARS_AND_LEN.
+	 */
+	public static void callVoid(ApiIndex api, MemorySegment arg1, long arg2) {
+		ThreadChecker.ensureMainThread();
+		try {
+			requireApi(api).invoke(arg1, arg2);
+		} catch (Throwable t) {
+			throw new org.godot.exception.GodotApiException(api.name(), "callVoid", t);
+		}
+	}
+
+	/**
 	 * Call an API function with a MemorySegment, a long, and a MemorySegment. Used
 	 * for variant_get_indexed(self, index, ret).
 	 */
@@ -578,6 +591,20 @@ public final class Bridge {
 	 */
 	public static void callVoid(ApiIndex api, MemorySegment arg1, MemorySegment arg2, MemorySegment arg3, long arg4,
 			MemorySegment arg5, MemorySegment arg6) {
+		ThreadChecker.ensureMainThread();
+		try {
+			requireApi(api).invoke(arg1, arg2, arg3, arg4, arg5, arg6);
+		} catch (Throwable t) {
+			throw new org.godot.exception.GodotApiException(api.name(), "callVoid", t);
+		}
+	}
+
+	/**
+	 * Call an API function with 6 arguments: 4 MemorySegments, a long, and an int.
+	 * Used for classdb_register_extension_class_integer_constant.
+	 */
+	public static void callVoid(ApiIndex api, MemorySegment arg1, MemorySegment arg2, MemorySegment arg3,
+			MemorySegment arg4, long arg5, int arg6) {
 		ThreadChecker.ensureMainThread();
 		try {
 			requireApi(api).invoke(arg1, arg2, arg3, arg4, arg5, arg6);

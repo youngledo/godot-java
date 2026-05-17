@@ -204,4 +204,61 @@ public final class MethodRegistration {
 			default -> 0; // NONE
 		};
 	}
+
+	/**
+	 * Register all @GodotMethod(virtual=true) script-virtual methods.
+	 */
+	public static int registerVirtualMethods(String className) {
+		String[][] virtualMethods = Dispatch.getVirtualScriptMethods(className);
+		if (virtualMethods.length == 0)
+			return 0;
+
+		MemorySegment libraryPtr = MemorySegment.ofAddress(Bridge.libraryPtr());
+		GodotStringName classSn = GodotStringName.fromJavaString(className);
+		int count = 0;
+		for (String[] vm : virtualMethods) {
+			String methodName = vm[0];
+			String returnType = vm[1];
+			int argc = vm.length - 2;
+			boolean hasReturn = returnType != null && !returnType.equals("void");
+
+			GodotStringName methodSn = GodotStringName.fromJavaString(methodName);
+			MemorySegment info = Bridge.allocate(StructOffsets.VIRTUAL_METHOD_INFO_SIZE);
+
+			// name (StringName*)
+			info.set(ADDRESS, StructOffsets.VIRTUAL_METHOD_INFO_OFF_NAME,
+					MemorySegment.ofAddress(methodSn.segment().address()));
+			// method_flags: METHOD_FLAG_VIRTUAL = 2 | METHOD_FLAG_NORMAL = 1
+			info.set(JAVA_INT, StructOffsets.VIRTUAL_METHOD_INFO_OFF_METHOD_FLAGS, 3);
+
+			// return_value (embedded GDExtensionPropertyInfo at offset 16)
+			int retType = hasReturn ? stringTypeToVariantTypeId(returnType) : 0;
+			fillPropertyInfo(info, StructOffsets.VIRTUAL_METHOD_INFO_OFF_RETURN_VALUE, retType, null);
+			// return_value_metadata
+			info.set(JAVA_INT, StructOffsets.VIRTUAL_METHOD_INFO_OFF_RETURN_VALUE_METADATA,
+					hasReturn ? stringTypeToMetadata(returnType) : 0);
+
+			// argument_count
+			info.set(JAVA_INT, StructOffsets.VIRTUAL_METHOD_INFO_OFF_ARGUMENT_COUNT, argc);
+
+			if (argc > 0) {
+				MemorySegment argsInfo = Bridge.allocate((long) argc * StructOffsets.PROPERTY_INFO_SIZE);
+				MemorySegment argsMeta = Bridge.allocate((long) argc * 4L);
+				for (int i = 0; i < argc; i++) {
+					String paramType = vm[2 + i];
+					long off = (long) i * StructOffsets.PROPERTY_INFO_SIZE;
+					GodotStringName paramNameSn = GodotStringName.fromJavaString("arg" + i);
+					fillPropertyInfo(argsInfo, off, stringTypeToVariantTypeId(paramType), paramNameSn);
+					argsMeta.set(JAVA_INT, (long) i * 4L, stringTypeToMetadata(paramType));
+				}
+				info.set(ADDRESS, StructOffsets.VIRTUAL_METHOD_INFO_OFF_ARGUMENTS, argsInfo);
+				info.set(ADDRESS, StructOffsets.VIRTUAL_METHOD_INFO_OFF_ARGUMENTS_METADATA, argsMeta);
+			}
+
+			Bridge.callVoid(ApiIndex.CLASSDB_REGISTER_EXTENSION_CLASS_VIRTUAL_METHOD, libraryPtr, classSn.segment(),
+					info);
+			count++;
+		}
+		return count;
+	}
 }

@@ -12,11 +12,12 @@ public class StructOffsetsGenerator {
 
 	// Structs to generate offsets for
 	private static final List<String> STRUCTS = List.of("GDExtensionClassCreationInfo4", "GDExtensionPropertyInfo",
-			"GDExtensionClassMethodInfo");
+			"GDExtensionClassMethodInfo", "GDExtensionClassVirtualMethodInfo");
 
 	// Prefix mapping for constant names
 	private static final Map<String, String> PREFIX_MAP = Map.of("GDExtensionClassCreationInfo4", "CREATION_INFO4",
-			"GDExtensionPropertyInfo", "PROPERTY_INFO", "GDExtensionClassMethodInfo", "METHOD_INFO");
+			"GDExtensionPropertyInfo", "PROPERTY_INFO", "GDExtensionClassMethodInfo", "METHOD_INFO",
+			"GDExtensionClassVirtualMethodInfo", "VIRTUAL_METHOD_INFO");
 
 	public static void generate(StructLayoutComputer computer, String outputDir, String packageName)
 			throws IOException {

@@ -108,6 +108,30 @@ public final class Dispatch {
 		accessor.dispatchVirtual(className, methodName, instance, args, ret);
 	}
 
+	public static boolean isToolClass(String className) {
+		return accessor.isToolClass(className);
+	}
+
+	public static boolean isSingletonClass(String className) {
+		return accessor.isSingletonClass(className);
+	}
+
+	public static boolean isInternalClass(String className) {
+		return accessor.isInternalClass(className);
+	}
+
+	public static String[][] getConstants(String className) {
+		return accessor.getConstants(className);
+	}
+
+	public static String[][] getVirtualScriptMethods(String className) {
+		return accessor.getVirtualScriptMethods(className);
+	}
+
+	public static String getClassDocXml(String className) {
+		return accessor.getClassDocXml(className);
+	}
+
 	private Dispatch() {
 	}
 
@@ -211,6 +235,35 @@ public final class Dispatch {
 
 		@Override
 		public void dispatchVirtual(String c, String m, MemorySegment i, MemorySegment a, MemorySegment r) {
+		}
+		@Override
+		public boolean isToolClass(String c) {
+			return false;
+		}
+
+		@Override
+		public boolean isSingletonClass(String c) {
+			return false;
+		}
+
+		@Override
+		public boolean isInternalClass(String c) {
+			return false;
+		}
+
+		@Override
+		public String[][] getConstants(String c) {
+			return new String[0][];
+		}
+
+		@Override
+		public String[][] getVirtualScriptMethods(String c) {
+			return new String[0][];
+		}
+
+		@Override
+		public String getClassDocXml(String c) {
+			return null;
 		}
 	}
 }

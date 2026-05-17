@@ -1,5 +1,6 @@
 package org.godot.registration;
 
+import org.godot.Godot;
 import org.godot.bridge.Bridge;
 import org.godot.bridge.InstanceCallbacks;
 import org.godot.bridge.MethodDispatch;
@@ -51,6 +52,7 @@ public final class Registry {
 		int methodCount = 0;
 		int propertyCount = 0;
 		int signalCount = 0;
+		int constantCount = 0;
 		long startNanos = System.nanoTime();
 
 		for (Class<?> cls : classes) {
@@ -60,13 +62,14 @@ public final class Registry {
 				methodCount += stats.methods;
 				propertyCount += stats.properties;
 				signalCount += stats.signals;
+				constantCount += stats.constants;
 			}
 		}
 
 		long elapsed = (System.nanoTime() - startNanos) / 1_000_000;
 		org.godot.internal.DebugLogger.log("registry",
-				String.format("Registered %d classes in %dms: %d methods, %d properties, %d signals", classCount,
-						elapsed, methodCount, propertyCount, signalCount));
+				String.format("Registered %d classes in %dms: %d methods, %d properties, %d signals, %d constants",
+						classCount, elapsed, methodCount, propertyCount, signalCount, constantCount));
 	}
 
 	/** Stats from a single class registration. */
@@ -74,6 +77,7 @@ public final class Registry {
 		int methods;
 		int properties;
 		int signals;
+		int constants;
 	}
 
 	/**
@@ -126,9 +130,81 @@ public final class Registry {
 		// Register @Signal signals
 		stats.signals = SignalRegistration.registerSignals(className);
 
+		// Register @Constant integer constants
+		stats.constants = registerConstants(className);
+
+		// Register @GodotMethod(virtual=true) script-virtual methods
+		MethodRegistration.registerVirtualMethods(className);
+
+		// Register editor documentation (only in editor)
+		registerDocs(className);
+
+		// Register singleton if annotated
+		if (Dispatch.isSingletonClass(className)) {
+			registerSingleton(className);
+		}
+
 		registeredClassNames.add(className);
 
 		return stats;
+	}
+
+	private static int registerConstants(String className) {
+		String[][] constants = Dispatch.getConstants(className);
+		if (constants.length == 0)
+			return 0;
+
+		GodotStringName classNameSn = GodotStringName.fromJavaString(className);
+		MemorySegment libraryPtr = MemorySegment.ofAddress(Bridge.libraryPtr());
+		MemorySegment emptySn = GodotStringName.fromJavaString("").segment();
+		int count = 0;
+		for (String[] entry : constants) {
+			String constName = entry[0];
+			long constValue = Long.parseLong(entry[1]);
+			GodotStringName constNameSn = GodotStringName.fromJavaString(constName);
+			Bridge.callVoid(ApiIndex.CLASSDB_REGISTER_EXTENSION_CLASS_INTEGER_CONSTANT, libraryPtr,
+					classNameSn.segment(), emptySn, constNameSn.segment(), constValue, 0);
+			count++;
+		}
+		return count;
+	}
+
+	private static void registerDocs(String className) {
+		if (!org.godot.singleton.Engine.singleton().isEditorHint())
+			return;
+		String xml = Dispatch.getClassDocXml(className);
+		if (xml == null || xml.isEmpty())
+			return;
+		byte[] bytes = xml.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+		MemorySegment xmlData = Bridge.ARENA.allocateFrom(xml, java.nio.charset.StandardCharsets.UTF_8);
+		Bridge.callVoid(ApiIndex.EDITOR_HELP_LOAD_XML_FROM_UTF8_CHARS_AND_LEN, xmlData, (long) bytes.length);
+	}
+
+	private static void registerSingleton(String className) {
+		try {
+			String parentName = Dispatch.getParentClass(className);
+			GodotStringName parentSn = GodotStringName.fromJavaString(parentName);
+			MemorySegment nativeObj = Bridge.callPtr(ApiIndex.CLASSDB_CONSTRUCT_OBJECT2, parentSn.segment());
+			long nativePtr = nativeObj.address();
+			if (nativePtr == 0) {
+				logger.error("Failed to create singleton instance for {}", className);
+				return;
+			}
+			Godot instance = Dispatch.createInstance(className, nativePtr);
+			if (instance == null) {
+				logger.error("Dispatch.createInstance returned null for singleton {}", className);
+				return;
+			}
+			JavaObjectMap.put(nativePtr, instance);
+
+			GodotStringName classNameSn = GodotStringName.fromJavaString(className);
+			Bridge.callVoid(ApiIndex.OBJECT_SET_INSTANCE, nativeObj, classNameSn.segment(), nativeObj);
+
+			org.godot.singleton.Engine.singleton().registerSingleton(className, instance);
+			logger.info("Registered singleton: {}", className);
+		} catch (Exception e) {
+			logger.error("Failed to register singleton {}: {}", className, e.getMessage());
+		}
 	}
 
 	/**

@@ -29,4 +29,10 @@ public @interface GodotClass {
 	String name();
 
 	String parent() default "RefCounted";
+
+	/** If true, registers this class as a Godot engine singleton. */
+	boolean singleton() default false;
+
+	/** If true, hides this class from the Godot editor create dialog. */
+	boolean internal() default false;
 }

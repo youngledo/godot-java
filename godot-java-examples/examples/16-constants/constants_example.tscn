@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://constants_example.gd" id="1"]
+
+[node name="ConstantsExample" type="Node"]
+script = ExtResource("1")

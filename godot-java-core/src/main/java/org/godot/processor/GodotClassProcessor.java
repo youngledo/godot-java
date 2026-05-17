@@ -44,7 +44,7 @@ import java.util.Set;
  */
 @javax.annotation.processing.SupportedAnnotationTypes({"org.godot.annotation.GodotClass",
 		"org.godot.annotation.GodotMethod", "org.godot.annotation.Export", "org.godot.annotation.Signal",
-		"org.godot.annotation.Rpc"})
+		"org.godot.annotation.Rpc", "org.godot.annotation.Tool", "org.godot.annotation.Constant"})
 @javax.annotation.processing.SupportedSourceVersion(SourceVersion.RELEASE_25)
 public class GodotClassProcessor extends AbstractProcessor {
 
@@ -79,11 +79,15 @@ public class GodotClassProcessor extends AbstractProcessor {
 					try {
 						var anno = element.getAnnotation(org.godot.annotation.GodotClass.class);
 						if (anno != null) {
-							discoveredClasses.add(new ClassEntry(fqn, anno.name(), anno.parent()));
+							boolean isTool = typeElement.getAnnotation(org.godot.annotation.Tool.class) != null;
+							boolean isSingleton = anno.singleton();
+							boolean isInternal = anno.internal();
+							discoveredClasses.add(
+									new ClassEntry(fqn, anno.name(), anno.parent(), isTool, isSingleton, isInternal));
 						}
 					} catch (Exception e) {
-						discoveredClasses
-								.add(new ClassEntry(fqn, typeElement.getSimpleName().toString(), "RefCounted"));
+						discoveredClasses.add(new ClassEntry(fqn, typeElement.getSimpleName().toString(), "RefCounted",
+								false, false, false));
 					}
 				}
 			}
@@ -166,7 +170,8 @@ public class GodotClassProcessor extends AbstractProcessor {
 	// Data records
 	// -----------------------------------------------------------------------
 
-	private record ClassEntry(String fqn, String godotClassName, String parentClass) {
+	private record ClassEntry(String fqn, String godotClassName, String parentClass, boolean isTool,
+			boolean isSingleton, boolean isInternal) {
 	}
 
 	private record MethodInfo(String javaName, String godotName, String returnType, List<String> paramTypes,
@@ -193,12 +198,33 @@ public class GodotClassProcessor extends AbstractProcessor {
 	private record RpcProxyInfo(String godotName, List<String> paramTypes) {
 	}
 
+	private record ConstantInfo(String name, int value) {
+	}
+
+	private record VirtualMethodInfo(String godotName, String returnType, List<String> paramTypes) {
+	}
+
+	private record ClassDoc(String briefDesc, String description) {
+	}
+
+	private record MethodDoc(String briefDesc, String description) {
+	}
+
+	private record PropertyDoc(String description) {
+	}
+
+	private record SignalDoc(String description) {
+	}
+
+	private record ConstantDoc(String description) {
+	}
+
 	// -----------------------------------------------------------------------
 	// Member collection
 	// -----------------------------------------------------------------------
 
 	private void collectMembers(TypeElement typeElement, List<MethodInfo> methods, List<FieldInfo> fields,
-			List<SignalInfo> signals) {
+			List<SignalInfo> signals, List<ConstantInfo> constants) {
 		String currentGroup = "";
 		String currentGroupHint = "";
 		String currentSubgroup = "";
@@ -436,6 +462,14 @@ public class GodotClassProcessor extends AbstractProcessor {
 		Map<String, Map<Long, Set<String>>> virtualHashData = new LinkedHashMap<>();
 		Map<String, Set<String>> virtualAllNames = new LinkedHashMap<>();
 		Map<String, List<RpcInfo>> classRpcConfigs = new LinkedHashMap<>();
+		Map<String, List<ConstantInfo>> classConstants = new LinkedHashMap<>();
+		Map<String, List<VirtualMethodInfo>> classVirtualScriptMethods = new LinkedHashMap<>();
+
+		Map<String, ClassDoc> classDocs = new LinkedHashMap<>();
+		Map<String, Map<String, MethodDoc>> methodDocs = new LinkedHashMap<>();
+		Map<String, Map<String, PropertyDoc>> propertyDocs = new LinkedHashMap<>();
+		Map<String, Map<String, SignalDoc>> signalDocs = new LinkedHashMap<>();
+		Map<String, Map<String, ConstantDoc>> constantDocs = new LinkedHashMap<>();
 
 		for (ClassEntry entry : discoveredClasses) {
 			TypeElement typeElement = processingEnv.getElementUtils().getTypeElement(entry.fqn());
@@ -445,7 +479,8 @@ public class GodotClassProcessor extends AbstractProcessor {
 			List<MethodInfo> methods = new ArrayList<>();
 			List<FieldInfo> fields = new ArrayList<>();
 			List<SignalInfo> signals = new ArrayList<>();
-			collectMembers(typeElement, methods, fields, signals);
+			List<ConstantInfo> constants = new ArrayList<>();
+			collectMembers(typeElement, methods, fields, signals, constants);
 
 			String gcn = entry.godotClassName();
 			if (!methods.isEmpty())
@@ -454,6 +489,85 @@ public class GodotClassProcessor extends AbstractProcessor {
 				classFields.put(gcn, fields);
 			if (!signals.isEmpty())
 				classSignals.put(gcn, signals);
+
+			// --- Extract Javadoc for class ---
+			String classDocComment = processingEnv.getElementUtils().getDocComment(typeElement);
+			if (classDocComment != null && !classDocComment.isBlank()) {
+				String bbcode = DocConverter.markdownToBbcode(classDocComment);
+				String brief = bbcode.contains("\n") ? bbcode.substring(0, bbcode.indexOf('\n')).trim() : bbcode;
+				classDocs.put(gcn, new ClassDoc(DocConverter.escapeXml(brief), DocConverter.escapeXml(bbcode)));
+			}
+
+			// --- Extract Javadoc for methods ---
+			for (MethodInfo mi : methods) {
+				for (Element enclosed : typeElement.getEnclosedElements()) {
+					if (enclosed.getKind() != ElementKind.METHOD)
+						continue;
+					if (!enclosed.getSimpleName().toString().equals(mi.javaName()))
+						continue;
+					String methodDocComment = processingEnv.getElementUtils().getDocComment(enclosed);
+					if (methodDocComment != null && !methodDocComment.isBlank()) {
+						String bbcode = DocConverter.markdownToBbcode(methodDocComment);
+						String brief = bbcode.contains("\n")
+								? bbcode.substring(0, bbcode.indexOf('\n')).trim()
+								: bbcode;
+						methodDocs.computeIfAbsent(gcn, k -> new LinkedHashMap<>()).put(mi.godotName(),
+								new MethodDoc(DocConverter.escapeXml(brief), DocConverter.escapeXml(bbcode)));
+					}
+				}
+			}
+
+			// --- Extract Javadoc for @Export properties ---
+			for (Element enclosed : typeElement.getEnclosedElements()) {
+				if (enclosed.getKind() != ElementKind.FIELD)
+					continue;
+				if (enclosed.getAnnotation(org.godot.annotation.Export.class) == null)
+					continue;
+				String fieldDocComment = processingEnv.getElementUtils().getDocComment(enclosed);
+				if (fieldDocComment != null && !fieldDocComment.isBlank()) {
+					String propName = enclosed.getSimpleName().toString();
+					org.godot.annotation.Export expAnn = enclosed.getAnnotation(org.godot.annotation.Export.class);
+					if (expAnn != null && !expAnn.propertyName().isEmpty()) {
+						propName = expAnn.propertyName();
+					}
+					String bbcode = DocConverter.markdownToBbcode(fieldDocComment);
+					propertyDocs.computeIfAbsent(gcn, k -> new LinkedHashMap<>()).put(propName,
+							new PropertyDoc(DocConverter.escapeXml(bbcode)));
+				}
+			}
+
+			// --- Extract Javadoc for @Signal methods ---
+			for (Element enclosed : typeElement.getEnclosedElements()) {
+				if (enclosed.getKind() != ElementKind.METHOD)
+					continue;
+				if (enclosed.getAnnotation(org.godot.annotation.Signal.class) == null)
+					continue;
+				String signalDocComment = processingEnv.getElementUtils().getDocComment(enclosed);
+				if (signalDocComment != null && !signalDocComment.isBlank()) {
+					org.godot.annotation.Signal sigAnn = enclosed.getAnnotation(org.godot.annotation.Signal.class);
+					String signalName = (sigAnn != null && !sigAnn.name().isEmpty())
+							? sigAnn.name()
+							: enclosed.getSimpleName().toString();
+					String bbcode = DocConverter.markdownToBbcode(signalDocComment);
+					signalDocs.computeIfAbsent(gcn, k -> new LinkedHashMap<>()).put(signalName,
+							new SignalDoc(DocConverter.escapeXml(bbcode)));
+				}
+			}
+
+			// --- Extract Javadoc for @Constant fields ---
+			for (Element enclosed : typeElement.getEnclosedElements()) {
+				if (enclosed.getKind() != ElementKind.FIELD)
+					continue;
+				if (enclosed.getAnnotation(org.godot.annotation.Constant.class) == null)
+					continue;
+				String constDocComment = processingEnv.getElementUtils().getDocComment(enclosed);
+				if (constDocComment != null && !constDocComment.isBlank()) {
+					String constName = enclosed.getSimpleName().toString();
+					String bbcode = DocConverter.markdownToBbcode(constDocComment);
+					constantDocs.computeIfAbsent(gcn, k -> new LinkedHashMap<>()).put(constName,
+							new ConstantDoc(DocConverter.escapeXml(bbcode)));
+				}
+			}
 
 			// @Rpc configs
 			List<RpcInfo> rpcs = new ArrayList<>();
@@ -475,6 +589,26 @@ public class GodotClassProcessor extends AbstractProcessor {
 			}
 			if (!rpcs.isEmpty())
 				classRpcConfigs.put(gcn, rpcs);
+
+			// @Constant fields
+			if (!constants.isEmpty())
+				classConstants.put(gcn, constants);
+
+			// @GodotMethod(virtual=true) script-virtual methods
+			for (MethodInfo mi : methods) {
+				for (Element member : typeElement.getEnclosedElements()) {
+					if (member.getKind() != ElementKind.METHOD)
+						continue;
+					if (!member.getSimpleName().toString().equals(mi.javaName()))
+						continue;
+					org.godot.annotation.GodotMethod gmAnn = member
+							.getAnnotation(org.godot.annotation.GodotMethod.class);
+					if (gmAnn != null && gmAnn.virtual()) {
+						classVirtualScriptMethods.computeIfAbsent(gcn, k -> new ArrayList<>())
+								.add(new VirtualMethodInfo(mi.godotName(), mi.returnType(), mi.paramTypes()));
+					}
+				}
+			}
 
 			// Virtual overrides
 			if (indexLoaded) {
@@ -526,7 +660,8 @@ public class GodotClassProcessor extends AbstractProcessor {
 			JavaFileObject sourceFile = processingEnv.getFiler().createSourceFile(fqn);
 			try (Writer w = sourceFile.openWriter()) {
 				writeDispatchIndex(w, classMethods, classFields, classSignals, classVirtualOverrides, virtualHashData,
-						virtualAllNames, classRpcConfigs);
+						virtualAllNames, classRpcConfigs, classConstants, classVirtualScriptMethods, classDocs,
+						methodDocs, propertyDocs, signalDocs, constantDocs);
 			}
 
 			processingEnv.getMessager().printMessage(Diagnostic.Kind.NOTE,
@@ -541,7 +676,11 @@ public class GodotClassProcessor extends AbstractProcessor {
 			Map<String, List<FieldInfo>> classFields, Map<String, List<SignalInfo>> classSignals,
 			Map<String, List<VirtualOverrideInfo>> classVirtualOverrides,
 			Map<String, Map<Long, Set<String>>> virtualHashData, Map<String, Set<String>> virtualAllNames,
-			Map<String, List<RpcInfo>> classRpcConfigs) throws IOException {
+			Map<String, List<RpcInfo>> classRpcConfigs, Map<String, List<ConstantInfo>> classConstants,
+			Map<String, List<VirtualMethodInfo>> classVirtualScriptMethods, Map<String, ClassDoc> classDocs,
+			Map<String, Map<String, MethodDoc>> methodDocs, Map<String, Map<String, PropertyDoc>> propertyDocs,
+			Map<String, Map<String, SignalDoc>> signalDocs, Map<String, Map<String, ConstantDoc>> constantDocs)
+			throws IOException {
 
 		// --- Package + imports ---
 		w.write("package " + REGISTRY_PACKAGE + ";\n\n");
@@ -620,6 +759,19 @@ public class GodotClassProcessor extends AbstractProcessor {
 		w.write("        _FQN_TO_GODOT_NAME = Collections.unmodifiableMap(m);\n");
 		w.write("    }\n");
 		w.write("    public String getGodotClassName(String fqn) { return _FQN_TO_GODOT_NAME.get(fqn); }\n\n");
+
+		// --- TOOL_CLASSES set ---
+		w.write("    private static final Set<String> _TOOL_CLASSES;\n");
+		w.write("    static {\n");
+		w.write("        var s = new HashSet<String>();\n");
+		for (ClassEntry entry : discoveredClasses) {
+			if (entry.isTool()) {
+				w.write("        s.add(\"" + entry.godotClassName() + "\");\n");
+			}
+		}
+		w.write("        _TOOL_CLASSES = Collections.unmodifiableSet(s);\n");
+		w.write("    }\n");
+		w.write("    public boolean isToolClass(String name) { return _TOOL_CLASSES.contains(name); }\n\n");
 
 		// --- FACTORY map ---
 		w.write("    private static final Map<String, LongFunction<Godot>> _FACTORIES;\n");
@@ -819,6 +971,112 @@ public class GodotClassProcessor extends AbstractProcessor {
 		w.write("    public Set<String> getVirtualAllNames(String parent) {\n");
 		w.write("        return _VIRTUAL_ALL_NAMES.getOrDefault(parent, Set.of());\n");
 		w.write("    }\n\n");
+
+		// --- SINGLETON_CLASSES set ---
+		w.write("    private static final Set<String> _SINGLETON_CLASSES;\n");
+		w.write("    static {\n");
+		w.write("        var s = new HashSet<String>();\n");
+		for (ClassEntry entry : discoveredClasses) {
+			if (entry.isSingleton()) {
+				w.write("        s.add(\"" + entry.godotClassName() + "\");\n");
+			}
+		}
+		w.write("        _SINGLETON_CLASSES = Collections.unmodifiableSet(s);\n");
+		w.write("    }\n");
+		w.write("    public boolean isSingletonClass(String name) { return _SINGLETON_CLASSES.contains(name); }\n\n");
+
+		// --- INTERNAL_CLASSES set ---
+		w.write("    private static final Set<String> _INTERNAL_CLASSES;\n");
+		w.write("    static {\n");
+		w.write("        var s = new HashSet<String>();\n");
+		for (ClassEntry entry : discoveredClasses) {
+			if (entry.isInternal()) {
+				w.write("        s.add(\"" + entry.godotClassName() + "\");\n");
+			}
+		}
+		w.write("        _INTERNAL_CLASSES = Collections.unmodifiableSet(s);\n");
+		w.write("    }\n");
+		w.write("    public boolean isInternalClass(String name) { return _INTERNAL_CLASSES.contains(name); }\n\n");
+
+		// --- CONSTANTS map ---
+		if (!classConstants.isEmpty()) {
+			w.write("    private static final Map<String, String[][]> _CONSTANTS;\n");
+			w.write("    static {\n");
+			w.write("        var m = new HashMap<String, String[][]>();\n");
+			for (var e : classConstants.entrySet()) {
+				w.write("        m.put(\"" + e.getKey() + "\", new String[][] {");
+				for (var c : e.getValue()) {
+					w.write("{{\"" + c.name() + "\", \"" + c.value() + "\"}, ");
+				}
+				w.write("});\n");
+			}
+			w.write("        _CONSTANTS = Collections.unmodifiableMap(m);\n");
+			w.write("    }\n");
+		}
+		w.write("    public String[][] getConstants(String name) {\n");
+		if (!classConstants.isEmpty()) {
+			w.write("        return _CONSTANTS != null ? _CONSTANTS.getOrDefault(name, new String[0][]) : new String[0][];\n");
+		} else {
+			w.write("        return new String[0][];\n");
+		}
+		w.write("    }\n\n");
+
+		// --- VIRTUAL_SCRIPT_METHODS map ---
+		if (!classVirtualScriptMethods.isEmpty()) {
+			w.write("    private static final Map<String, String[][]> _VIRTUAL_SCRIPT_METHODS;\n");
+			w.write("    static {\n");
+			w.write("        var m = new HashMap<String, String[][]>();\n");
+			for (var e : classVirtualScriptMethods.entrySet()) {
+				w.write("        m.put(\"" + e.getKey() + "\", new String[][] {");
+				for (var vm : e.getValue()) {
+					StringBuilder row = new StringBuilder("{\"").append(vm.godotName()).append("\", \"")
+							.append(vm.returnType()).append("\"");
+					for (String pt : vm.paramTypes()) {
+						row.append(", \"").append(pt).append("\"");
+					}
+					row.append("}, ");
+					w.write(row.toString());
+				}
+				w.write("});\n");
+			}
+			w.write("        _VIRTUAL_SCRIPT_METHODS = Collections.unmodifiableMap(m);\n");
+			w.write("    }\n");
+		}
+		w.write("    public String[][] getVirtualScriptMethods(String name) {\n");
+		if (!classVirtualScriptMethods.isEmpty()) {
+			w.write("        return _VIRTUAL_SCRIPT_METHODS != null ? _VIRTUAL_SCRIPT_METHODS.getOrDefault(name, new String[0][]) : new String[0][];\n");
+		} else {
+			w.write("        return new String[0][];\n");
+		}
+		w.write("    }\n\n");
+
+		// --- CLASS_DOC_XML map ---
+		boolean hasAnyDocs = !classDocs.isEmpty() || !methodDocs.isEmpty() || !propertyDocs.isEmpty()
+				|| !signalDocs.isEmpty() || !constantDocs.isEmpty();
+		if (hasAnyDocs) {
+			w.write("    private static final Map<String, String> _CLASS_DOC_XML;\n");
+			w.write("    static {\n");
+			w.write("        var m = new HashMap<String, String>();\n");
+			for (ClassEntry entry : discoveredClasses) {
+				String gcn = entry.godotClassName();
+				ClassDoc cd = classDocs.get(gcn);
+				Map<String, MethodDoc> mDocs = methodDocs.getOrDefault(gcn, Map.of());
+				Map<String, PropertyDoc> pDocs = propertyDocs.getOrDefault(gcn, Map.of());
+				Map<String, SignalDoc> sDocs = signalDocs.getOrDefault(gcn, Map.of());
+				Map<String, ConstantDoc> cDocs = constantDocs.getOrDefault(gcn, Map.of());
+				if (cd == null && mDocs.isEmpty() && pDocs.isEmpty() && sDocs.isEmpty() && cDocs.isEmpty())
+					continue;
+				String xml = buildClassDocXml(gcn, entry.parentClass(), cd, mDocs, pDocs, sDocs, cDocs);
+				w.write("        m.put(\"" + gcn + "\", \"" + escapeJava(xml) + "\");\n");
+			}
+			w.write("        _CLASS_DOC_XML = Collections.unmodifiableMap(m);\n");
+			w.write("    }\n");
+			w.write("    public String getClassDocXml(String name) {\n");
+			w.write("        return _CLASS_DOC_XML != null ? _CLASS_DOC_XML.getOrDefault(name, null) : null;\n");
+			w.write("    }\n\n");
+		} else {
+			w.write("    public String getClassDocXml(String name) { return null; }\n\n");
+		}
 
 		// --- VarHandle fields ---
 		for (Map.Entry<String, List<FieldInfo>> e : classFields.entrySet()) {
@@ -1097,6 +1355,92 @@ public class GodotClassProcessor extends AbstractProcessor {
 		w.write("}\n");
 	}
 
+	/**
+	 * Build Godot class reference XML for documentation registration.
+	 */
+	private String buildClassDocXml(String className, String parentClass, ClassDoc classDoc,
+			Map<String, MethodDoc> mDocs, Map<String, PropertyDoc> pDocs, Map<String, SignalDoc> sDocs,
+			Map<String, ConstantDoc> cDocs) {
+		StringBuilder xml = new StringBuilder();
+		xml.append("<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n");
+		xml.append("<class name=\"").append(className).append("\" inherits=\"").append(parentClass)
+				.append("\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"")
+				.append(" xsi:noNamespaceSchemaLocation=\"../class.xsd\">\n");
+
+		// brief_description
+		xml.append("\t<brief_description>\n");
+		if (classDoc != null && !classDoc.briefDesc().isEmpty()) {
+			xml.append("\t").append(classDoc.briefDesc()).append("\n");
+		}
+		xml.append("\t</brief_description>\n");
+
+		// description
+		xml.append("\t<description>\n");
+		if (classDoc != null && !classDoc.description().isEmpty()) {
+			xml.append("\t").append(classDoc.description()).append("\n");
+		}
+		xml.append("\t</description>\n");
+
+		// methods
+		if (!mDocs.isEmpty()) {
+			xml.append("\t<methods>\n");
+			for (Map.Entry<String, MethodDoc> me : mDocs.entrySet()) {
+				xml.append("\t\t<method name=\"").append(me.getKey()).append("\">\n");
+				xml.append("\t\t\t<description>\n");
+				if (!me.getValue().description().isEmpty()) {
+					xml.append("\t\t\t").append(me.getValue().description()).append("\n");
+				}
+				xml.append("\t\t\t</description>\n");
+				xml.append("\t\t</method>\n");
+			}
+			xml.append("\t</methods>\n");
+		}
+
+		// members (properties)
+		if (!pDocs.isEmpty()) {
+			xml.append("\t<members>\n");
+			for (Map.Entry<String, PropertyDoc> pe : pDocs.entrySet()) {
+				xml.append("\t\t<member name=\"").append(pe.getKey()).append("\">\n");
+				if (!pe.getValue().description().isEmpty()) {
+					xml.append("\t\t").append(pe.getValue().description()).append("\n");
+				}
+				xml.append("\t\t</member>\n");
+			}
+			xml.append("\t</members>\n");
+		}
+
+		// signals
+		if (!sDocs.isEmpty()) {
+			xml.append("\t<signals>\n");
+			for (Map.Entry<String, SignalDoc> se : sDocs.entrySet()) {
+				xml.append("\t\t<signal name=\"").append(se.getKey()).append("\">\n");
+				xml.append("\t\t\t<description>\n");
+				if (!se.getValue().description().isEmpty()) {
+					xml.append("\t\t\t").append(se.getValue().description()).append("\n");
+				}
+				xml.append("\t\t\t</description>\n");
+				xml.append("\t\t</signal>\n");
+			}
+			xml.append("\t</signals>\n");
+		}
+
+		// constants
+		if (!cDocs.isEmpty()) {
+			xml.append("\t<constants>\n");
+			for (Map.Entry<String, ConstantDoc> ce : cDocs.entrySet()) {
+				xml.append("\t\t<constant name=\"").append(ce.getKey()).append("\">\n");
+				if (!ce.getValue().description().isEmpty()) {
+					xml.append("\t\t").append(ce.getValue().description()).append("\n");
+				}
+				xml.append("\t\t</constant>\n");
+			}
+			xml.append("\t</constants>\n");
+		}
+
+		xml.append("</class>");
+		return xml.toString();
+	}
+
 	private String sanitize(String name) {
 		return name.replace('.', '_').replace('$', '_');
 	}
@@ -1210,7 +1554,7 @@ public class GodotClassProcessor extends AbstractProcessor {
 				continue;
 
 			List<SignalInfo> signals = new ArrayList<>();
-			collectMembers(typeElement, new ArrayList<>(), new ArrayList<>(), signals);
+			collectMembers(typeElement, new ArrayList<>(), new ArrayList<>(), signals, new ArrayList<>());
 
 			List<SignalInfo> supported = new ArrayList<>();
 			for (SignalInfo si : signals) {
