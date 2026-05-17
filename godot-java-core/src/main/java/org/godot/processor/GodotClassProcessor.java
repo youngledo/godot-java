@@ -179,7 +179,8 @@ public class GodotClassProcessor extends AbstractProcessor {
 	}
 
 	private record FieldInfo(String javaName, String propertyName, String type, int hintId, String hintString,
-			int usage, String group, String groupHint, String subgroup, String subgroupHint) {
+			int usage, String group, String groupHint, String subgroup, String subgroupHint, String getter,
+			String setter, boolean readOnly) {
 	}
 
 	private record SignalInfo(String javaName, String signalName, List<String> paramTypes, List<String> paramNames) {
@@ -304,9 +305,16 @@ public class GodotClassProcessor extends AbstractProcessor {
 					int hintId = ann != null ? ann.hint().id() : 0;
 					String hintString = ann != null ? ann.hintString() : "";
 					int usage = ann != null ? ann.usage().value : (1 | 2 | 4 | 8);
+					String getter = ann != null ? ann.getter() : "";
+					String setter = ann != null ? ann.setter() : "";
+					boolean readOnly = ann != null && ann.readOnly();
+					if (readOnly) {
+						usage = org.godot.annotation.PropertyUsage.EDITOR_READ_ONLY.value;
+						setter = "";
+					}
 					fields.add(new FieldInfo(field.getSimpleName().toString(), propName,
 							typeToDescriptor(field.asType()), hintId, hintString, usage, currentGroup, currentGroupHint,
-							currentSubgroup, currentSubgroupHint));
+							currentSubgroup, currentSubgroupHint, getter, setter, readOnly));
 				}
 			}
 		}
@@ -372,6 +380,17 @@ public class GodotClassProcessor extends AbstractProcessor {
 	}
 
 	private String javaTypeForVarHandle(String descriptor) {
+		return switch (descriptor) {
+			case "boolean" -> "boolean.class";
+			case "int" -> "int.class";
+			case "long" -> "long.class";
+			case "float" -> "float.class";
+			case "double" -> "double.class";
+			default -> descriptor + ".class";
+		};
+	}
+
+	private String javaTypeForMethodHandle(String descriptor) {
 		return switch (descriptor) {
 			case "boolean" -> "boolean.class";
 			case "int" -> "int.class";
@@ -686,6 +705,7 @@ public class GodotClassProcessor extends AbstractProcessor {
 		w.write("package " + REGISTRY_PACKAGE + ";\n\n");
 		w.write("import java.lang.invoke.MethodHandles;\n");
 		w.write("import java.lang.invoke.MethodType;\n");
+		w.write("import java.lang.invoke.MethodHandle;\n");
 		w.write("import java.lang.invoke.VarHandle;\n");
 		w.write("import java.lang.foreign.MemorySegment;\n");
 		w.write("import java.util.Collections;\n");
@@ -804,9 +824,10 @@ public class GodotClassProcessor extends AbstractProcessor {
 			for (FieldInfo f : e.getValue()) {
 				String line = "            new PropertyMeta(" + "\"" + f.javaName() + "\"" + ", " + "\""
 						+ f.propertyName() + "\"" + ", " + "\"" + f.type() + "\"" + ", " + f.hintId() + ", " + "\""
-						+ escapeJava(f.hintString()) + "\"" + ", " + f.usage() + ", " + "\"" + escapeJava(f.group())
-						+ "\"" + ", " + "\"" + escapeJava(f.groupHint()) + "\"" + ", " + "\"" + escapeJava(f.subgroup())
-						+ "\"" + ", " + "\"" + escapeJava(f.subgroupHint()) + "\"" + "),\n";
+						+ escapeJava(f.hintString()) + "\"" + ", " + f.usage() + ", " + "\"" + escapeJava(f.getter())
+						+ "\"" + ", " + "\"" + escapeJava(f.setter()) + "\"" + ", " + f.readOnly() + ", " + "\""
+						+ escapeJava(f.group()) + "\"" + ", " + "\"" + escapeJava(f.groupHint()) + "\"" + ", " + "\""
+						+ escapeJava(f.subgroup()) + "\"" + ", " + "\"" + escapeJava(f.subgroupHint()) + "\"" + "),\n";
 				w.write(line);
 			}
 			w.write("        });\n");
@@ -1085,9 +1106,22 @@ public class GodotClassProcessor extends AbstractProcessor {
 				w.write("    private static VarHandle VH_" + safeName + ";\n");
 			}
 		}
+
+		// --- MethodHandle fields for custom getter/setter ---
+		for (Map.Entry<String, List<FieldInfo>> e : classFields.entrySet()) {
+			for (FieldInfo f : e.getValue()) {
+				String safeName = sanitize(e.getKey()) + "_" + sanitize(f.javaName());
+				if (!f.getter().isEmpty()) {
+					w.write("    private static MethodHandle MH_GET_" + safeName + ";\n");
+				}
+				if (!f.setter().isEmpty()) {
+					w.write("    private static MethodHandle MH_SET_" + safeName + ";\n");
+				}
+			}
+		}
 		w.write("\n");
 
-		// --- Static initializer for VarHandles ---
+		// --- Static initializer for VarHandles and MethodHandles ---
 		if (!classFields.isEmpty()) {
 			w.write("    static {\n");
 			w.write("        try {\n");
@@ -1098,6 +1132,22 @@ public class GodotClassProcessor extends AbstractProcessor {
 					String safeName = sanitize(e.getKey()) + "_" + sanitize(f.javaName());
 					w.write("            VH_" + safeName + " = lookup.findVarHandle(" + classSimpleName + ".class, \""
 							+ f.javaName() + "\", " + javaTypeForVarHandle(f.type()) + ");\n");
+				}
+			}
+			for (Map.Entry<String, List<FieldInfo>> e : classFields.entrySet()) {
+				String classSimpleName = getClassSimpleName(e.getKey());
+				for (FieldInfo f : e.getValue()) {
+					String safeName = sanitize(e.getKey()) + "_" + sanitize(f.javaName());
+					if (!f.getter().isEmpty()) {
+						w.write("            MH_GET_" + safeName + " = lookup.findVirtual(" + classSimpleName
+								+ ".class, \"" + f.getter() + "\", MethodType.methodType("
+								+ javaTypeForMethodHandle(f.type()) + "));\n");
+					}
+					if (!f.setter().isEmpty()) {
+						w.write("            MH_SET_" + safeName + " = lookup.findVirtual(" + classSimpleName
+								+ ".class, \"" + f.setter() + "\", MethodType.methodType(void.class, "
+								+ javaTypeForMethodHandle(f.type()) + "));\n");
+					}
 				}
 			}
 			w.write("        } catch (Exception e) {\n");
@@ -1123,8 +1173,14 @@ public class GodotClassProcessor extends AbstractProcessor {
 			w.write("        if (\"" + e.getKey() + "\".equals(godotClassName)) {\n");
 			for (FieldInfo f : e.getValue()) {
 				String safeName = sanitize(e.getKey()) + "_" + sanitize(f.javaName());
-				w.write("            if (\"" + f.propertyName() + "\".equals(propName) || \"" + f.javaName()
-						+ "\".equals(propName)) return VH_" + safeName + ".get(instance);\n");
+				if (!f.getter().isEmpty()) {
+					w.write("            if (\"" + f.propertyName() + "\".equals(propName) || \"" + f.javaName()
+							+ "\".equals(propName)) { try { return MH_GET_" + safeName
+							+ ".invoke(instance); } catch (Throwable t) { throw new RuntimeException(t); } }\n");
+				} else {
+					w.write("            if (\"" + f.propertyName() + "\".equals(propName) || \"" + f.javaName()
+							+ "\".equals(propName)) return VH_" + safeName + ".get(instance);\n");
+				}
 			}
 			w.write("        }\n");
 		}
@@ -1138,10 +1194,20 @@ public class GodotClassProcessor extends AbstractProcessor {
 			w.write("        if (\"" + e.getKey() + "\".equals(godotClassName)) {\n");
 			for (FieldInfo f : e.getValue()) {
 				String safeName = sanitize(e.getKey()) + "_" + sanitize(f.javaName());
-				String setterArg = unboxExpr(f.type(), "value");
-				w.write("            if (\"" + f.propertyName() + "\".equals(propName) || \"" + f.javaName()
-						+ "\".equals(propName)) { VH_" + safeName + ".set(instance, " + setterArg
-						+ "); return true; }\n");
+				if (f.readOnly()) {
+					w.write("            if (\"" + f.propertyName() + "\".equals(propName) || \"" + f.javaName()
+							+ "\".equals(propName)) return false; // read-only\n");
+				} else if (!f.setter().isEmpty()) {
+					String setterArg = unboxExpr(f.type(), "value");
+					w.write("            if (\"" + f.propertyName() + "\".equals(propName) || \"" + f.javaName()
+							+ "\".equals(propName)) { try { MH_SET_" + safeName + ".invoke(instance, " + setterArg
+							+ "); return true; } catch (Throwable t) { throw new RuntimeException(t); } }\n");
+				} else {
+					String setterArg = unboxExpr(f.type(), "value");
+					w.write("            if (\"" + f.propertyName() + "\".equals(propName) || \"" + f.javaName()
+							+ "\".equals(propName)) { VH_" + safeName + ".set(instance, " + setterArg
+							+ "); return true; }\n");
+				}
 			}
 			w.write("        }\n");
 		}
