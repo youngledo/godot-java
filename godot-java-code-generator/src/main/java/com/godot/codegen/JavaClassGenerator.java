@@ -46,6 +46,7 @@ public class JavaClassGenerator {
 		addEnums(classBuilder, classInfo);
 		addMethods(classBuilder, classInfo);
 		addProperties(classBuilder, classInfo);
+		addSignals(classBuilder, classInfo);
 		addCreateFactory(classBuilder, classInfo);
 		addGetGodotClassName(classBuilder, classInfo);
 		addResolveMethodHash(classBuilder, classInfo);
@@ -1162,5 +1163,127 @@ public class JavaClassGenerator {
 		if (s == null || s.isEmpty())
 			return s;
 		return Character.toUpperCase(s.charAt(0)) + s.substring(1);
+	}
+
+	// ------------------------------------------------------------------
+	// Signal generation
+	// ------------------------------------------------------------------
+
+	private List<SignalInfo> collectAllSignals(ClassInfo classInfo) {
+		List<SignalInfo> allSignals = new ArrayList<>();
+		Set<String> seen = new java.util.HashSet<>();
+		String currentName = classInfo.name();
+		while (currentName != null && !currentName.isEmpty()) {
+			ClassInfo current = classMap.get(currentName);
+			if (current == null)
+				break;
+			for (SignalInfo signal : current.signals()) {
+				if (seen.add(signal.name())) {
+					allSignals.add(signal);
+				}
+			}
+			currentName = current.inherits();
+		}
+		return allSignals;
+	}
+
+	private String findSignalsOfParent(ClassInfo classInfo) {
+		String parentName = classInfo.inherits();
+		while (parentName != null && !parentName.isEmpty()) {
+			ClassInfo parent = classMap.get(parentName);
+			if (parent == null)
+				return null;
+			if (!collectAllSignals(parent).isEmpty()) {
+				return parentName;
+			}
+			parentName = parent.inherits();
+		}
+		return null;
+	}
+
+	private void addSignals(TypeSpec.Builder builder, ClassInfo classInfo) {
+		List<SignalInfo> allSignals = collectAllSignals(classInfo);
+		if (allSignals.isEmpty()) {
+			return;
+		}
+		String signalsClassName = "SignalsOf" + classInfo.name();
+		ClassName signalsType = ClassName.get(packageName, signalsClassName);
+
+		builder.addField(FieldSpec.builder(signalsType, "_signals", Modifier.PRIVATE).build());
+
+		builder.addMethod(MethodSpec.methodBuilder("signals").addModifiers(Modifier.PUBLIC).returns(signalsType)
+				.beginControlFlow("if (_signals == null)").addStatement("_signals = new $T(this)", signalsType)
+				.endControlFlow().addStatement("return _signals").build());
+	}
+
+	public JavaFile generateSignalsOf(ClassInfo classInfo) {
+		List<SignalInfo> allSignals = collectAllSignals(classInfo);
+		if (allSignals.isEmpty()) {
+			return null;
+		}
+
+		String signalsClassName = "SignalsOf" + classInfo.name();
+		ClassName ownerType = ClassName.get(packageName, classInfo.name());
+
+		TypeSpec.Builder signalsBuilder = TypeSpec.classBuilder(signalsClassName).addModifiers(Modifier.PUBLIC);
+
+		// Find parent with signals for inheritance
+		String signalsParent = findSignalsOfParent(classInfo);
+		if (signalsParent != null) {
+			signalsBuilder.superclass(ClassName.get(packageName, "SignalsOf" + signalsParent));
+		}
+
+		if (signalsParent == null) {
+			// Root class: own the owner field
+			signalsBuilder.addField(FieldSpec
+					.builder(ClassName.get("org.godot", "Godot"), "owner", Modifier.PROTECTED, Modifier.FINAL).build());
+			signalsBuilder.addMethod(MethodSpec.constructorBuilder().addModifiers(Modifier.PUBLIC)
+					.addParameter(ownerType, "owner").addStatement("this.owner = owner").build());
+		} else {
+			// Child class: delegate to parent constructor
+			signalsBuilder.addMethod(MethodSpec.constructorBuilder().addModifiers(Modifier.PUBLIC)
+					.addParameter(ownerType, "owner").addStatement("super(owner)").build());
+		}
+
+		// Only this class's OWN signals (inherited ones come from parent)
+		for (SignalInfo signal : classInfo.signals()) {
+			addSignalAccessor(signalsBuilder, signal);
+		}
+
+		return JavaFile.builder(packageName, signalsBuilder.build()).skipJavaLangImports(false).indent("	").build();
+	}
+
+	private void addSignalAccessor(TypeSpec.Builder builder, SignalInfo signal) {
+		int arity = signal.arguments().size();
+		if (arity > 5) {
+			return;
+		}
+
+		String signalJavaName = toJavaMethodName(signal.name());
+		ClassName signalType = ClassName.get("org.godot.core", "TypedSignal" + arity);
+
+		TypeName returnType;
+		if (arity == 0) {
+			returnType = signalType;
+		} else {
+			List<TypeName> typeParams = new ArrayList<>();
+			for (ArgInfo arg : signal.arguments()) {
+				String javaType = getSignalParamJavaType(arg);
+				typeParams.add(toTypeName(javaType));
+			}
+			returnType = ParameterizedTypeName.get(signalType, typeParams.toArray(new TypeName[0]));
+		}
+
+		builder.addMethod(MethodSpec.methodBuilder(signalJavaName).addModifiers(Modifier.PUBLIC).returns(returnType)
+				.addStatement("return new $T(owner, $S)", returnType, signal.name()).build());
+	}
+
+	private String getSignalParamJavaType(ArgInfo arg) {
+		String enumResolved = resolveEnumType(arg.type());
+		if (enumResolved != null) {
+			return enumResolved;
+		}
+		String javaType = TypeMapper.getJavaParamType(arg.type(), arg.meta());
+		return TypeMapper.boxType(javaType);
 	}
 }

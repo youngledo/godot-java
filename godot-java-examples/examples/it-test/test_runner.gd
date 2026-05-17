@@ -53,6 +53,8 @@ func run_tests():
 	test_missing_method_call()
 	test_diagnostic_context()
 	test_short_stress()
+	test_rpc_registration()
+	test_rpc_proxies()
 	await test_java_object_mapping_cleanup()
 	print("TEST_DIAGNOSTIC: %s" % test_node.captureMemoryStats("teardown"))
 
@@ -239,3 +241,11 @@ func test_missing_method_call():
 func test_diagnostic_context():
 	var result: bool = test_node.testDiagnosticContextAvailable()
 	assert_true(result, "Dispatch registry has class/method/property context for IntegrationTestNode")
+
+func test_rpc_registration():
+	var result: bool = test_node.testRpcRegistration()
+	assert_true(result, "@Rpc methods are registered via rpc_config")
+
+func test_rpc_proxies():
+	var result: bool = test_node.testRpcProxies()
+	assert_true(result, "Typed RPC proxy methods are callable")

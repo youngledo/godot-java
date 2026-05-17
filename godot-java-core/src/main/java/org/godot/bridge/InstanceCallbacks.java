@@ -85,6 +85,7 @@ public final class InstanceCallbacks {
 
 	private static final Map<String, MemorySegment> CREATE_INSTANCE_STUBS = new ConcurrentHashMap<>();
 	private static final Map<String, MemorySegment> FREE_INSTANCE_STUBS = new ConcurrentHashMap<>();
+	private static final Map<String, MemorySegment> RECREATE_INSTANCE_STUBS = new ConcurrentHashMap<>();
 
 	// ------------------------------------------------------------------------
 	// Upcall stub implementations
@@ -203,6 +204,68 @@ public final class InstanceCallbacks {
 	 */
 	private static void freeInstanceAdapter(MemorySegment classUserdataPtrSeg, MemorySegment instancePtrSeg) {
 		freeInstanceFunc(classUserdataPtrSeg.address(), instancePtrSeg.address());
+	}
+
+	/**
+	 * recreate_instance_func implementation: called by Godot during hot reload to
+	 * re-bind a Java wrapper to an existing Godot object.
+	 *
+	 * @param classUserdataPtr
+	 *            Address of the class name StringName (stored as class_userdata)
+	 * @param objectPtr
+	 *            GDExtensionObjectPtr of the existing Godot object
+	 * @return GDExtensionClassInstancePtr (same as objectPtr for our dispatch
+	 *         model)
+	 */
+	static long recreateInstanceFunc(long classUserdataPtr, long objectPtr) {
+		if (classUserdataPtr == 0 || objectPtr == 0) {
+			logger.error("recreateInstanceFunc: classUserdata=0x{} object=0x{} -- invalid args",
+					Long.toHexString(classUserdataPtr), Long.toHexString(objectPtr));
+			return 0;
+		}
+
+		String className = USERDATA_TO_CLASS_NAME.get(classUserdataPtr);
+		if (className == null) {
+			logger.error("recreateInstanceFunc: no class mapping for userdata=0x{}",
+					Long.toHexString(classUserdataPtr));
+			return 0;
+		}
+
+		try {
+			// Invalidate and remove the old Java wrapper
+			Godot oldInstance = JavaObjectMap.get(objectPtr);
+			if (oldInstance != null) {
+				oldInstance.invalidate();
+				JavaObjectMap.remove(objectPtr);
+			}
+
+			// Create new Java wrapper bound to the existing native object
+			Godot newInstance = Dispatch.createInstance(className, objectPtr);
+			if (newInstance == null) {
+				logger.error("recreateInstanceFunc: Dispatch.createInstance returned null for '{}'", className);
+				return 0;
+			}
+			JavaObjectMap.put(objectPtr, newInstance);
+
+			// Re-register the extension instance with Godot
+			MemorySegment nativeObj = MemorySegment.ofAddress(objectPtr);
+			GodotStringName classNameSn = GodotStringName.fromJavaString(className);
+			Bridge.callVoid(ApiIndex.OBJECT_SET_INSTANCE, nativeObj, classNameSn.segment(), nativeObj);
+
+			return objectPtr;
+		} catch (Exception e) {
+			throw new RuntimeException("godot-java: Failed to recreate instance for " + className, e);
+		}
+	}
+
+	/**
+	 * Panama adapter for recreate_instance_func. FD: ADDRESS recreate(ADDRESS
+	 * classUserdataPtr, ADDRESS objectPtr)
+	 */
+	private static MemorySegment recreateInstanceAdapter(MemorySegment classUserdataPtrSeg,
+			MemorySegment objectPtrSeg) {
+		long result = recreateInstanceFunc(classUserdataPtrSeg.address(), objectPtrSeg.address());
+		return MemorySegment.ofAddress(result);
 	}
 
 	// ------------------------------------------------------------------------
@@ -669,6 +732,21 @@ public final class InstanceCallbacks {
 	}
 
 	/**
+	 * Clear all registration data for hot reload. Invalidates all Java wrappers,
+	 * clears internal maps, but does not free native Arena allocations (they stay
+	 * valid until JVM shutdown).
+	 */
+	public static void clearRegistrationData() {
+		USERDATA_TO_CLASS_NAME.clear();
+		PARENT_CLASS_NAMES.clear();
+		LIVE_CREATION_INFO.clear();
+		CREATE_INSTANCE_STUBS.clear();
+		FREE_INSTANCE_STUBS.clear();
+		RECREATE_INSTANCE_STUBS.clear();
+		PROPERTY_LIST_ALLOCS.clear();
+	}
+
+	/**
 	 * Get the registered Java class for a Godot class name.
 	 */
 	public static Class<?> getJavaClass(String godotClassName) {
@@ -727,6 +805,13 @@ public final class InstanceCallbacks {
 		MemorySegment freeStub = Bridge.linker().upcallStub(freeHandle, freeFd, Bridge.ARENA);
 		FREE_INSTANCE_STUBS.put(godotClassName, freeStub);
 
+		// Build recreate_instance_func upcall stub (hot reload support)
+		FunctionDescriptor recreateFd = FunctionDescriptor.of(ADDRESS, ADDRESS, ADDRESS);
+		MethodHandle recreateHandle = findStatic("recreateInstanceAdapter",
+				MethodType.methodType(MemorySegment.class, MemorySegment.class, MemorySegment.class));
+		MemorySegment recreateStub = Bridge.linker().upcallStub(recreateHandle, recreateFd, Bridge.ARENA);
+		RECREATE_INSTANCE_STUBS.put(godotClassName, recreateStub);
+
 		// Allocate the creation info struct (160 bytes)
 		MemorySegment info = Bridge.allocate(StructOffsets.CREATION_INFO4_SIZE);
 
@@ -746,6 +831,10 @@ public final class InstanceCallbacks {
 		// free_instance_func
 		info.set(ADDRESS, StructOffsets.CREATION_INFO4_OFF_FREE_INSTANCE_FUNC,
 				MemorySegment.ofAddress(freeStub.address()));
+		// recreate_instance_func (offset 120) -- hot reload: re-bind Java wrapper to
+		// existing Godot object
+		info.set(ADDRESS, StructOffsets.CREATION_INFO4_OFF_RECREATE_INSTANCE_FUNC,
+				MemorySegment.ofAddress(recreateStub.address()));
 		// class_userdata = address of StringName struct
 		info.set(ADDRESS, StructOffsets.CREATION_INFO4_OFF_CLASS_USERDATA, MemorySegment.ofAddress(classNamePtr));
 

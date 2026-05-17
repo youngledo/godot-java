@@ -33,7 +33,7 @@ Last updated: 2025-05-15
 | Multi-JVM language | N/A | Kotlin / Java / Scala / GDJ | Java only |
 | Platform | Desktop + experimental Wasm/Android/iOS | Desktop + Android + iOS (GraalVM) | Desktop only (macOS/Linux/Windows) |
 | IDE support | rust-analyzer | IntelliJ plugin + Gradle plugin | Maven + any IDE |
-| Hot reload | Yes (itest) | No | No |
+| Hot reload | Yes (itest) | Yes (ClassLoader) | Planned (ClassLoader) |
 
 ## Detailed Feature Analysis
 

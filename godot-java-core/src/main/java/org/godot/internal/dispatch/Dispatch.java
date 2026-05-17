@@ -18,7 +18,7 @@ import java.util.Set;
 public final class Dispatch {
 
 	private static final Logger logger = LogManager.getLogger(Dispatch.class);
-	private static final DispatchAccessor accessor;
+	private static volatile DispatchAccessor accessor;
 
 	static {
 		DispatchAccessor a;
@@ -109,6 +109,22 @@ public final class Dispatch {
 	}
 
 	private Dispatch() {
+	}
+
+	/**
+	 * Reload dispatch data from a new ClassLoader for hot reload. Loads
+	 * DispatchIndex from the new loader and swaps the accessor atomically.
+	 */
+	public static void reload(ClassLoader loader) {
+		try {
+			Class<?> cls = Class.forName("org.godot.internal.DispatchIndex", true, loader);
+			MethodHandle mh = MethodHandles.lookup().findStaticGetter(cls, "INSTANCE", DispatchAccessor.class);
+			DispatchAccessor newAccessor = (DispatchAccessor) mh.invoke();
+			accessor = newAccessor;
+			logger.info("Dispatch reloaded from new ClassLoader");
+		} catch (Throwable e) {
+			logger.error("Failed to reload DispatchIndex: {}", e.getMessage());
+		}
 	}
 
 	private static final class NoOpAccessor implements DispatchAccessor {

@@ -50,6 +50,9 @@ public final class Bootstrap {
 			// Step 3: Scan classpath for @GodotClass annotated user classes
 			pendingClasses = Scanner.scan();
 
+			// Step 4: Start hot reload watcher if enabled
+			startHotReloadWatcher();
+
 			logger.info("Phase 1 complete. Bridge loaded, {} classes scanned.", pendingClasses.size());
 		} catch (Throwable t) {
 			throw new RuntimeException("godot-java: Bootstrap.init() failed", t);
@@ -80,12 +83,29 @@ public final class Bootstrap {
 	 */
 	public static void cleanup() {
 		try {
+			org.godot.registration.HotReloadWatcher.stop();
 			org.godot.internal.ref.JavaObjectMap.cleanup();
 			org.godot.internal.ref.RefCountedHelper.cleanup();
 			logger.info("Cleanup complete.");
 		} catch (Throwable t) {
 			logger.error("cleanup() failed", t);
 		}
+	}
+
+	private static void startHotReloadWatcher() {
+		if (!org.godot.registration.HotReloadWatcher.isEnabled()) {
+			return;
+		}
+		String classpath = System.getProperty("java.class.path");
+		if (classpath != null) {
+			for (String entry : classpath.split(System.getProperty("path.separator"))) {
+				if (entry.endsWith(".jar") && !entry.contains("godot-java-core")) {
+					org.godot.registration.HotReloadWatcher.start(entry);
+					return;
+				}
+			}
+		}
+		logger.warn("Hot reload enabled but no user JAR found on classpath");
 	}
 
 	// ------------------------------------------------------------------------

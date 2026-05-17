@@ -1721,6 +1721,23 @@ public abstract class Godot {
 		return false;
 	}
 
+	public void disconnect(String signalName, org.godot.core.Callable callable) {
+		checkValid();
+		call("disconnect", signalName, callable);
+	}
+
+	public boolean isConnected(String signalName, org.godot.core.Callable callable) {
+		checkValid();
+		java.lang.Object result = call("is_connected", signalName, callable);
+		if (result instanceof Boolean) {
+			return (Boolean) result;
+		}
+		if (result instanceof Number) {
+			return ((Number) result).intValue() != 0;
+		}
+		return false;
+	}
+
 	// ----------------------------------------------------------------
 	// Lifecycle
 	// ----------------------------------------------------------------
@@ -1729,6 +1746,37 @@ public abstract class Godot {
 		if (nativeObject != 0) {
 			org.godot.internal.ref.JavaObjectMap.remove(nativeObject);
 			nativeObject = 0;
+		}
+	}
+
+	/**
+	 * Hot reload: reload user code from the given JAR path.
+	 *
+	 * <p>
+	 * Creates a new URLClassLoader pointing at the JAR, unregisters all existing
+	 * user classes from Godot's ClassDB, rescans using the new ClassLoader, and
+	 * re-registers all classes.
+	 *
+	 * <p>
+	 * Godot-side state (@Export properties) is preserved. Java-side non-exported
+	 * fields are reset to defaults.
+	 *
+	 * @param jarPath
+	 *            Absolute path to the updated JAR file
+	 */
+	public static void reloadUserCode(String jarPath) {
+		logger.info("Hot reload triggered: {}", jarPath);
+		try {
+			java.net.URL jarUrl = new java.io.File(jarPath).toURI().toURL();
+			java.net.URLClassLoader newLoader = new java.net.URLClassLoader(new java.net.URL[]{jarUrl},
+					Godot.class.getClassLoader());
+
+			java.util.List<Class<?>> newClasses = org.godot.registration.Scanner.rescan(newLoader);
+			org.godot.registration.Registry.reloadUserClasses(newClasses);
+
+			logger.info("Hot reload complete: {} classes reloaded", newClasses.size());
+		} catch (Exception e) {
+			logger.error("Hot reload failed", e);
 		}
 	}
 

@@ -43,7 +43,8 @@ import java.util.Set;
  * </ol>
  */
 @javax.annotation.processing.SupportedAnnotationTypes({"org.godot.annotation.GodotClass",
-		"org.godot.annotation.GodotMethod", "org.godot.annotation.Export", "org.godot.annotation.Signal"})
+		"org.godot.annotation.GodotMethod", "org.godot.annotation.Export", "org.godot.annotation.Signal",
+		"org.godot.annotation.Rpc"})
 @javax.annotation.processing.SupportedSourceVersion(SourceVersion.RELEASE_25)
 public class GodotClassProcessor extends AbstractProcessor {
 
@@ -184,6 +185,12 @@ public class GodotClassProcessor extends AbstractProcessor {
 	}
 
 	private record ParamTypeInfo(String fqn, String category) {
+	}
+
+	private record RpcInfo(String godotName, int rpcMode, int transferMode, boolean callLocal, int channel) {
+	}
+
+	private record RpcProxyInfo(String godotName, List<String> paramTypes) {
 	}
 
 	// -----------------------------------------------------------------------
@@ -428,6 +435,7 @@ public class GodotClassProcessor extends AbstractProcessor {
 		Map<String, List<VirtualOverrideInfo>> classVirtualOverrides = new LinkedHashMap<>();
 		Map<String, Map<Long, Set<String>>> virtualHashData = new LinkedHashMap<>();
 		Map<String, Set<String>> virtualAllNames = new LinkedHashMap<>();
+		Map<String, List<RpcInfo>> classRpcConfigs = new LinkedHashMap<>();
 
 		for (ClassEntry entry : discoveredClasses) {
 			TypeElement typeElement = processingEnv.getElementUtils().getTypeElement(entry.fqn());
@@ -446,6 +454,27 @@ public class GodotClassProcessor extends AbstractProcessor {
 				classFields.put(gcn, fields);
 			if (!signals.isEmpty())
 				classSignals.put(gcn, signals);
+
+			// @Rpc configs
+			List<RpcInfo> rpcs = new ArrayList<>();
+			for (Element member : typeElement.getEnclosedElements()) {
+				if (member.getKind() != ElementKind.METHOD)
+					continue;
+				ExecutableElement method = (ExecutableElement) member;
+				org.godot.annotation.Rpc rpcAnn = method.getAnnotation(org.godot.annotation.Rpc.class);
+				if (rpcAnn == null)
+					continue;
+				String methodName = method.getSimpleName().toString();
+				String godotName = methodName;
+				org.godot.annotation.GodotMethod gmAnn = method.getAnnotation(org.godot.annotation.GodotMethod.class);
+				if (gmAnn != null && !gmAnn.value().isEmpty()) {
+					godotName = gmAnn.value();
+				}
+				rpcs.add(new RpcInfo(godotName, rpcAnn.mode().value, rpcAnn.transfer().value, rpcAnn.callLocal(),
+						rpcAnn.channel()));
+			}
+			if (!rpcs.isEmpty())
+				classRpcConfigs.put(gcn, rpcs);
 
 			// Virtual overrides
 			if (indexLoaded) {
@@ -497,7 +526,7 @@ public class GodotClassProcessor extends AbstractProcessor {
 			JavaFileObject sourceFile = processingEnv.getFiler().createSourceFile(fqn);
 			try (Writer w = sourceFile.openWriter()) {
 				writeDispatchIndex(w, classMethods, classFields, classSignals, classVirtualOverrides, virtualHashData,
-						virtualAllNames);
+						virtualAllNames, classRpcConfigs);
 			}
 
 			processingEnv.getMessager().printMessage(Diagnostic.Kind.NOTE,
@@ -511,8 +540,8 @@ public class GodotClassProcessor extends AbstractProcessor {
 	private void writeDispatchIndex(Writer w, Map<String, List<MethodInfo>> classMethods,
 			Map<String, List<FieldInfo>> classFields, Map<String, List<SignalInfo>> classSignals,
 			Map<String, List<VirtualOverrideInfo>> classVirtualOverrides,
-			Map<String, Map<Long, Set<String>>> virtualHashData, Map<String, Set<String>> virtualAllNames)
-			throws IOException {
+			Map<String, Map<Long, Set<String>>> virtualHashData, Map<String, Set<String>> virtualAllNames,
+			Map<String, List<RpcInfo>> classRpcConfigs) throws IOException {
 
 		// --- Package + imports ---
 		w.write("package " + REGISTRY_PACKAGE + ";\n\n");
@@ -601,6 +630,9 @@ public class GodotClassProcessor extends AbstractProcessor {
 			w.write("        m.put(\"" + entry.godotClassName() + "\", ptr -> {\n");
 			w.write("            " + simpleName + " instance = new " + simpleName + "();\n");
 			w.write("            instance.setNativeObject(ptr);\n");
+			if (classRpcConfigs.containsKey(entry.godotClassName())) {
+				w.write("            registerRpcConfigs(\"" + entry.godotClassName() + "\", instance);\n");
+			}
 			w.write("            return instance;\n");
 			w.write("        });\n");
 		}
@@ -695,6 +727,38 @@ public class GodotClassProcessor extends AbstractProcessor {
 		w.write("    public SignalMeta[] getSignals(String name) {\n");
 		w.write("        return _SIGNALS.getOrDefault(name, _EMPTY_SIGNALS);\n");
 		w.write("    }\n\n");
+
+		// --- RPC_CONFIGS map ---
+		if (!classRpcConfigs.isEmpty()) {
+			w.write("    private static final Map<String, String[][]> _RPC_CONFIGS;\n");
+			w.write("    static {\n");
+			w.write("        var m = new HashMap<String, String[][]>();\n");
+			for (var e : classRpcConfigs.entrySet()) {
+				w.write("        m.put(\"" + e.getKey() + "\", new String[][] {");
+				for (var rpc : e.getValue()) {
+					w.write("{\"" + rpc.godotName() + "\", \"" + rpc.rpcMode() + "\", \"" + rpc.transferMode()
+							+ "\", \"" + rpc.callLocal() + "\", \"" + rpc.channel() + "\"}, ");
+				}
+				w.write("});\n");
+			}
+			w.write("        _RPC_CONFIGS = Collections.unmodifiableMap(m);\n");
+			w.write("    }\n");
+			w.write("    public static String[][] getRpcConfigs(String name) {\n");
+			w.write("        return _RPC_CONFIGS.getOrDefault(name, new String[0][]);\n");
+			w.write("    }\n");
+			w.write("    public static void registerRpcConfigs(String godotClassName, Godot instance) {\n");
+			w.write("        var configs = _RPC_CONFIGS.get(godotClassName);\n");
+			w.write("        if (configs == null) return;\n");
+			w.write("        for (var cfg : configs) {\n");
+			w.write("            var dict = new org.godot.collection.GodotDictionary();\n");
+			w.write("            dict.put(\"rpc_mode\", Integer.parseInt(cfg[1]));\n");
+			w.write("            dict.put(\"transfer_mode\", Integer.parseInt(cfg[2]));\n");
+			w.write("            dict.put(\"call_local\", Boolean.parseBoolean(cfg[3]));\n");
+			w.write("            dict.put(\"channel\", Integer.parseInt(cfg[4]));\n");
+			w.write("            instance.call(\"rpc_config\", cfg[0], dict);\n");
+			w.write("        }\n");
+			w.write("    }\n\n");
+		}
 
 		// --- VIRTUAL_OVERRIDES map ---
 		w.write("    private static final Map<String, Set<String>> _VIRTUAL_OVERRIDES;\n");
@@ -1147,8 +1211,6 @@ public class GodotClassProcessor extends AbstractProcessor {
 
 			List<SignalInfo> signals = new ArrayList<>();
 			collectMembers(typeElement, new ArrayList<>(), new ArrayList<>(), signals);
-			if (signals.isEmpty())
-				continue;
 
 			List<SignalInfo> supported = new ArrayList<>();
 			for (SignalInfo si : signals) {
@@ -1165,7 +1227,30 @@ public class GodotClassProcessor extends AbstractProcessor {
 					supported.add(si);
 				}
 			}
-			if (supported.isEmpty())
+
+			// Collect @Rpc methods for typed proxy generation
+			List<RpcProxyInfo> rpcs = new ArrayList<>();
+			for (Element member : typeElement.getEnclosedElements()) {
+				if (member.getKind() != ElementKind.METHOD)
+					continue;
+				ExecutableElement method = (ExecutableElement) member;
+				org.godot.annotation.Rpc rpcAnn = method.getAnnotation(org.godot.annotation.Rpc.class);
+				if (rpcAnn == null)
+					continue;
+				String methodName = method.getSimpleName().toString();
+				String godotName = methodName;
+				org.godot.annotation.GodotMethod gmAnn = method.getAnnotation(org.godot.annotation.GodotMethod.class);
+				if (gmAnn != null && !gmAnn.value().isEmpty()) {
+					godotName = gmAnn.value();
+				}
+				List<String> paramTypes = new ArrayList<>();
+				for (VariableElement param : method.getParameters()) {
+					paramTypes.add(typeToDescriptor(param.asType()));
+				}
+				rpcs.add(new RpcProxyInfo(godotName, paramTypes));
+			}
+
+			if (supported.isEmpty() && rpcs.isEmpty())
 				continue;
 
 			String fqn = entry.fqn();
@@ -1177,7 +1262,7 @@ public class GodotClassProcessor extends AbstractProcessor {
 			try {
 				JavaFileObject sourceFile = processingEnv.getFiler().createSourceFile(facadeFQN);
 				try (Writer w = sourceFile.openWriter()) {
-					writeSignalFacade(w, pkg, simpleName, facadeName, supported);
+					writeSignalFacade(w, pkg, simpleName, facadeName, supported, rpcs);
 				}
 			} catch (IOException e) {
 				processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR,
@@ -1187,7 +1272,7 @@ public class GodotClassProcessor extends AbstractProcessor {
 	}
 
 	private void writeSignalFacade(Writer w, String pkg, String ownerSimpleName, String facadeName,
-			List<SignalInfo> signals) throws IOException {
+			List<SignalInfo> signals, List<RpcProxyInfo> rpcs) throws IOException {
 		w.write("package " + pkg + ";\n\n");
 
 		Set<Integer> arities = new LinkedHashSet<>();
@@ -1217,6 +1302,7 @@ public class GodotClassProcessor extends AbstractProcessor {
 		w.write("        this.owner = owner;\n");
 		w.write("    }\n");
 
+		// Signal accessors
 		for (SignalInfo si : signals) {
 			int arity = si.paramTypes().size();
 			w.write("\n    public TypedSignal" + arity);
@@ -1230,7 +1316,55 @@ public class GodotClassProcessor extends AbstractProcessor {
 			w.write("    }\n");
 		}
 
+		// RPC proxy methods
+		for (RpcProxyInfo rpc : rpcs) {
+			String method = rpc.godotName();
+			String javaName = method + "Rpc";
+			List<String> paramTypes = rpc.paramTypes();
+
+			// rpc broadcast: methodNameRpc(params...)
+			w.write("\n    public void " + javaName + "(");
+			for (int i = 0; i < paramTypes.size(); i++) {
+				if (i > 0)
+					w.write(", ");
+				w.write(paramTypes.get(i) + " arg" + i);
+			}
+			w.write(") {\n");
+			w.write("        owner.rpc(\"" + method + "\"");
+			for (int i = 0; i < paramTypes.size(); i++) {
+				w.write(", " + boxExpr(paramTypes.get(i), "arg" + i));
+			}
+			w.write(");\n");
+			w.write("    }\n");
+
+			// rpc to specific peer: methodNameRpcId(long peerId, params...)
+			w.write("\n    public void " + javaName + "Id(long peerId");
+			for (int i = 0; i < paramTypes.size(); i++) {
+				w.write(", " + paramTypes.get(i) + " arg" + i);
+			}
+			w.write(") {\n");
+			w.write("        owner.rpcId(peerId, \"" + method + "\"");
+			for (int i = 0; i < paramTypes.size(); i++) {
+				w.write(", " + boxExpr(paramTypes.get(i), "arg" + i));
+			}
+			w.write(");\n");
+			w.write("    }\n");
+		}
+
 		w.write("}\n");
+	}
+
+	private String boxExpr(String descriptor, String expr) {
+		return switch (descriptor) {
+			case "int" -> "Integer.valueOf(" + expr + ")";
+			case "long" -> "Long.valueOf(" + expr + ")";
+			case "float" -> "Float.valueOf(" + expr + ")";
+			case "double" -> "Double.valueOf(" + expr + ")";
+			case "short" -> "Short.valueOf(" + expr + ")";
+			case "byte" -> "Byte.valueOf(" + expr + ")";
+			case "boolean" -> "Boolean.valueOf(" + expr + ")";
+			default -> expr;
+		};
 	}
 
 	private boolean isSupportedSignalParamType(String descriptor) {

@@ -3,7 +3,10 @@ package examples.integrationtest;
 import org.godot.annotation.Export;
 import org.godot.annotation.GodotClass;
 import org.godot.annotation.GodotMethod;
+import org.godot.annotation.Rpc;
+import org.godot.annotation.RpcMode;
 import org.godot.annotation.Signal;
+import org.godot.annotation.TransferMode;
 import org.godot.bridge.Bridge;
 import org.godot.collection.GodotArray;
 import org.godot.collection.GodotDictionary;
@@ -44,6 +47,7 @@ public class IntegrationTestNode extends Node {
 	public boolean exportedBool = true;
 
 	private int methodCallCount = 0;
+	private boolean rpcCalled = false;
 
 	@Signal
 	public void testSignal(int value) {
@@ -549,6 +553,79 @@ public class IntegrationTestNode extends Node {
 		if (!Dispatch.hasProperty("IntegrationTestNode", "exportedInt"))
 			return false;
 
+		return true;
+	}
+
+	// ---- RPC tests ----
+
+	@Rpc(mode = RpcMode.ANY_PEER, transfer = TransferMode.RELIABLE, callLocal = true)
+	@GodotMethod
+	public void syncPosition(double x, double y, double z) {
+		rpcCalled = true;
+	}
+
+	@Rpc(mode = RpcMode.AUTHORITY, transfer = TransferMode.UNRELIABLE_ORDERED, channel = 1)
+	@GodotMethod
+	public void takeDamage(int amount) {
+		rpcCalled = true;
+	}
+
+	@GodotMethod
+	public boolean testRpcRegistration() {
+		// Verify RPC methods are directly callable
+		syncPosition(1.0, 2.0, 3.0);
+		takeDamage(42);
+		if (!rpcCalled) {
+			System.out.println("FAIL: RPC methods were not callable");
+			return false;
+		}
+		// Verify DispatchIndex has the RPC configs in its map
+		String[][] configs = org.godot.internal.DispatchIndex.getRpcConfigs("IntegrationTestNode");
+		if (configs == null || configs.length != 2) {
+			System.out.println("FAIL: Expected 2 RPC configs, got " + (configs == null ? "null" : configs.length));
+			return false;
+		}
+		// Verify syncPosition config: mode=1(ANY_PEER), transfer=2(RELIABLE),
+		// callLocal=true, channel=0
+		boolean foundSync = false;
+		boolean foundDmg = false;
+		for (var cfg : configs) {
+			if ("syncPosition".equals(cfg[0])) {
+				foundSync = "1".equals(cfg[1]) && "2".equals(cfg[2]) && "true".equals(cfg[3]) && "0".equals(cfg[4]);
+			}
+			if ("takeDamage".equals(cfg[0])) {
+				foundDmg = "2".equals(cfg[1]) && "1".equals(cfg[2]) && "false".equals(cfg[3]) && "1".equals(cfg[4]);
+			}
+		}
+		if (!foundSync) {
+			System.out.println("FAIL: syncPosition RPC config mismatch");
+			return false;
+		}
+		if (!foundDmg) {
+			System.out.println("FAIL: takeDamage RPC config mismatch");
+			return false;
+		}
+		System.out.println("PASS: RPC registration verified");
+		return true;
+	}
+
+	@GodotMethod
+	public boolean testRpcProxies() {
+		// Verify typed RPC proxy methods exist in generated facade (compile-time check)
+		var proxy = new IntegrationTestNodeSignals(this);
+		// Call the methods locally to verify they exist and compile with correct types
+		// (rpc() itself requires multiplayer which isn't available in headless)
+		Class<?> proxyClass = proxy.getClass();
+		try {
+			proxyClass.getMethod("syncPositionRpc", double.class, double.class, double.class);
+			proxyClass.getMethod("syncPositionRpcId", long.class, double.class, double.class, double.class);
+			proxyClass.getMethod("takeDamageRpc", int.class);
+			proxyClass.getMethod("takeDamageRpcId", long.class, int.class);
+		} catch (NoSuchMethodException e) {
+			System.out.println("FAIL: Missing RPC proxy method: " + e.getMessage());
+			return false;
+		}
+		System.out.println("PASS: Typed RPC proxy methods verified");
 		return true;
 	}
 

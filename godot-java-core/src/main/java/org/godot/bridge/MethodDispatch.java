@@ -68,6 +68,12 @@ public final class MethodDispatch {
 		}
 	}
 
+	/** Clear method dispatch data for hot reload. Stubs stay alive in Arena. */
+	public static void reset() {
+		METHOD_KEY_TO_CLASS.clear();
+		METHOD_KEY_TO_NAME.clear();
+	}
+
 	/**
 	 * Register a method by class name and Godot method name (no reflection). The
 	 * dispatch path will use Dispatch.dispatchPtrcall/dispatchVariantCall.

@@ -9,6 +9,8 @@ import org.godot.bridge.SignalRegistration;
 import org.godot.core.GodotStringName;
 import org.godot.internal.api.ApiIndex;
 import org.godot.internal.dispatch.Dispatch;
+import org.godot.internal.ref.JavaObjectMap;
+import org.godot.internal.ref.RefCountedHelper;
 import java.lang.foreign.MemorySegment;
 import java.util.List;
 
@@ -17,6 +19,13 @@ import java.util.List;
  * builtin types and user @GodotClass types with Godot's ClassDB.
  */
 public final class Registry {
+
+	private static final org.apache.logging.log4j.Logger logger = org.apache.logging.log4j.LogManager
+			.getLogger(Registry.class);
+
+	/** Tracks registered class names for unregistration during hot reload. */
+	private static final java.util.List<String> registeredClassNames = java.util.Collections
+			.synchronizedList(new java.util.ArrayList<>());
 
 	private Registry() {
 	}
@@ -117,6 +126,58 @@ public final class Registry {
 		// Register @Signal signals
 		stats.signals = SignalRegistration.registerSignals(className);
 
+		registeredClassNames.add(className);
+
 		return stats;
+	}
+
+	/**
+	 * Unregister all user classes from Godot ClassDB. Called during hot reload
+	 * before re-registering with new class definitions.
+	 *
+	 * <p>
+	 * Children must be unregistered before parents (Godot constraint). This method
+	 * reverses the registration order to ensure correct teardown.
+	 */
+	public static void unregisterUserClasses() {
+		long startNanos = System.nanoTime();
+
+		// Unregister in reverse order (children before parents)
+		java.util.List<String> names = new java.util.ArrayList<>(registeredClassNames);
+		java.util.Collections.reverse(names);
+
+		for (String className : names) {
+			GodotStringName classNameSn = GodotStringName.fromJavaString(className);
+			Bridge.callVoid(ApiIndex.CLASSDB_UNREGISTER_EXTENSION_CLASS, MemorySegment.ofAddress(Bridge.libraryPtr()),
+					classNameSn.segment());
+			logger.debug("Unregistered class: {}", className);
+		}
+
+		// Clear internal caches
+		InstanceCallbacks.clearRegistrationData();
+		MethodDispatch.reset();
+		RefCountedHelper.cleanup();
+		JavaObjectMap.cleanup();
+
+		int count = registeredClassNames.size();
+		registeredClassNames.clear();
+
+		long elapsed = (System.nanoTime() - startNanos) / 1_000_000;
+		logger.info("Unregistered {} classes in {}ms", count, elapsed);
+	}
+
+	/**
+	 * Reload user classes: unregister old classes, re-register with new
+	 * definitions. Used for hot reload.
+	 *
+	 * @param classes
+	 *            The new class list (loaded by a fresh ClassLoader)
+	 */
+	public static void reloadUserClasses(java.util.List<Class<?>> classes) {
+		logger.info("Hot reload: unregistering {} classes...", registeredClassNames.size());
+		unregisterUserClasses();
+
+		logger.info("Hot reload: registering {} new classes...", classes.size());
+		registerUserClasses(classes);
 	}
 }

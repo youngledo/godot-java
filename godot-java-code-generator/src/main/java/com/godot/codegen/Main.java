@@ -75,6 +75,7 @@ public class Main {
 
 		JavaClassGenerator generator = new JavaClassGenerator(NODE_PACKAGE, classes);
 		int generated = 0;
+		int signalClassesGenerated = 0;
 		for (ClassInfo classInfo : classes) {
 			try {
 				JavaFile javaFile = generator.generateClass(classInfo);
@@ -86,12 +87,25 @@ public class Main {
 					javaFile.writeTo(writer);
 				}
 				generated++;
+
+				// Generate SignalsOf{Class} companion file
+				JavaFile signalsFile = generator.generateSignalsOf(classInfo);
+				if (signalsFile != null) {
+					String signalsPackagePath = signalsFile.packageName.replace('.', '/');
+					Path signalsDirPath = Path.of(outputDir, signalsPackagePath);
+					Files.createDirectories(signalsDirPath);
+					Path signalsFilePath = signalsDirPath.resolve("SignalsOf" + classInfo.name() + ".java");
+					try (var writer = Files.newBufferedWriter(signalsFilePath, StandardCharsets.UTF_8)) {
+						signalsFile.writeTo(writer);
+					}
+					signalClassesGenerated++;
+				}
 			} catch (Exception e) {
 				System.err.println("Error generating " + classInfo.name() + ": " + e.getMessage());
 				e.printStackTrace();
 			}
 		}
-		System.out.println("Generated " + generated + " engine classes");
+		System.out.println("Generated " + generated + " engine classes, " + signalClassesGenerated + " signal classes");
 
 		// Generate singleton wrappers
 		System.out.println("Generating " + singletons.size() + " singleton wrappers...");
