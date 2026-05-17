@@ -68,4 +68,16 @@ public interface DispatchAccessor {
 	 * docs were generated for this class.
 	 */
 	String getClassDocXml(String godotClassName);
+
+	boolean hasDynamicGetter(String godotClassName);
+
+	boolean hasDynamicSetter(String godotClassName);
+
+	boolean hasDynamicPropertyList(String godotClassName);
+
+	Object dispatchDynamicGet(String godotClassName, Godot instance, String propertyName);
+
+	boolean dispatchDynamicSet(String godotClassName, Godot instance, String propertyName, Object value);
+
+	Object dispatchDynamicPropertyList(String godotClassName, Godot instance);
 }

@@ -132,6 +132,30 @@ public final class Dispatch {
 		return accessor.getClassDocXml(className);
 	}
 
+	public static boolean hasDynamicGetter(String className) {
+		return accessor.hasDynamicGetter(className);
+	}
+
+	public static boolean hasDynamicSetter(String className) {
+		return accessor.hasDynamicSetter(className);
+	}
+
+	public static boolean hasDynamicPropertyList(String className) {
+		return accessor.hasDynamicPropertyList(className);
+	}
+
+	public static Object dispatchDynamicGet(String className, Godot instance, String propertyName) {
+		return accessor.dispatchDynamicGet(className, instance, propertyName);
+	}
+
+	public static boolean dispatchDynamicSet(String className, Godot instance, String propertyName, Object value) {
+		return accessor.dispatchDynamicSet(className, instance, propertyName, value);
+	}
+
+	public static Object dispatchDynamicPropertyList(String className, Godot instance) {
+		return accessor.dispatchDynamicPropertyList(className, instance);
+	}
+
 	private Dispatch() {
 	}
 
@@ -263,6 +287,36 @@ public final class Dispatch {
 
 		@Override
 		public String getClassDocXml(String c) {
+			return null;
+		}
+
+		@Override
+		public boolean hasDynamicGetter(String c) {
+			return false;
+		}
+
+		@Override
+		public boolean hasDynamicSetter(String c) {
+			return false;
+		}
+
+		@Override
+		public boolean hasDynamicPropertyList(String c) {
+			return false;
+		}
+
+		@Override
+		public Object dispatchDynamicGet(String c, Godot i, String p) {
+			return null;
+		}
+
+		@Override
+		public boolean dispatchDynamicSet(String c, Godot i, String p, Object v) {
+			return false;
+		}
+
+		@Override
+		public Object dispatchDynamicPropertyList(String c, Godot i) {
 			return null;
 		}
 	}

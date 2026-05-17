@@ -44,7 +44,8 @@ import java.util.Set;
  */
 @javax.annotation.processing.SupportedAnnotationTypes({"org.godot.annotation.GodotClass",
 		"org.godot.annotation.GodotMethod", "org.godot.annotation.Export", "org.godot.annotation.Signal",
-		"org.godot.annotation.Rpc", "org.godot.annotation.Tool", "org.godot.annotation.Constant"})
+		"org.godot.annotation.Rpc", "org.godot.annotation.Tool", "org.godot.annotation.Constant",
+		"org.godot.annotation.GetProperty", "org.godot.annotation.SetProperty", "org.godot.annotation.GetPropertyList"})
 @javax.annotation.processing.SupportedSourceVersion(SourceVersion.RELEASE_25)
 public class GodotClassProcessor extends AbstractProcessor {
 
@@ -225,7 +226,8 @@ public class GodotClassProcessor extends AbstractProcessor {
 	// -----------------------------------------------------------------------
 
 	private void collectMembers(TypeElement typeElement, List<MethodInfo> methods, List<FieldInfo> fields,
-			List<SignalInfo> signals, List<ConstantInfo> constants) {
+			List<SignalInfo> signals, List<ConstantInfo> constants, List<String> dynamicGetters,
+			List<String> dynamicSetters, List<String> dynamicPropertyLists) {
 		String currentGroup = "";
 		String currentGroupHint = "";
 		String currentSubgroup = "";
@@ -251,6 +253,19 @@ public class GodotClassProcessor extends AbstractProcessor {
 
 				// @Signal methods are registered as signals, not callable methods
 				if (method.getAnnotation(org.godot.annotation.Signal.class) != null) {
+					continue;
+				}
+				// @GetProperty / @SetProperty / @GetPropertyList — dynamic property dispatch
+				if (method.getAnnotation(org.godot.annotation.GetProperty.class) != null) {
+					dynamicGetters.add(method.getSimpleName().toString());
+					continue;
+				}
+				if (method.getAnnotation(org.godot.annotation.SetProperty.class) != null) {
+					dynamicSetters.add(method.getSimpleName().toString());
+					continue;
+				}
+				if (method.getAnnotation(org.godot.annotation.GetPropertyList.class) != null) {
+					dynamicPropertyLists.add(method.getSimpleName().toString());
 					continue;
 				}
 				// Only collect public, non-static methods (skip Object/Godot overrides)
@@ -483,6 +498,9 @@ public class GodotClassProcessor extends AbstractProcessor {
 		Map<String, List<RpcInfo>> classRpcConfigs = new LinkedHashMap<>();
 		Map<String, List<ConstantInfo>> classConstants = new LinkedHashMap<>();
 		Map<String, List<VirtualMethodInfo>> classVirtualScriptMethods = new LinkedHashMap<>();
+		Map<String, List<String>> classDynamicGetters = new LinkedHashMap<>();
+		Map<String, List<String>> classDynamicSetters = new LinkedHashMap<>();
+		Map<String, List<String>> classDynamicPropertyLists = new LinkedHashMap<>();
 
 		Map<String, ClassDoc> classDocs = new LinkedHashMap<>();
 		Map<String, Map<String, MethodDoc>> methodDocs = new LinkedHashMap<>();
@@ -499,7 +517,11 @@ public class GodotClassProcessor extends AbstractProcessor {
 			List<FieldInfo> fields = new ArrayList<>();
 			List<SignalInfo> signals = new ArrayList<>();
 			List<ConstantInfo> constants = new ArrayList<>();
-			collectMembers(typeElement, methods, fields, signals, constants);
+			List<String> dynamicGetters = new ArrayList<>();
+			List<String> dynamicSetters = new ArrayList<>();
+			List<String> dynamicPropertyLists = new ArrayList<>();
+			collectMembers(typeElement, methods, fields, signals, constants, dynamicGetters, dynamicSetters,
+					dynamicPropertyLists);
 
 			String gcn = entry.godotClassName();
 			if (!methods.isEmpty())
@@ -613,6 +635,13 @@ public class GodotClassProcessor extends AbstractProcessor {
 			if (!constants.isEmpty())
 				classConstants.put(gcn, constants);
 
+			if (!dynamicGetters.isEmpty())
+				classDynamicGetters.put(gcn, dynamicGetters);
+			if (!dynamicSetters.isEmpty())
+				classDynamicSetters.put(gcn, dynamicSetters);
+			if (!dynamicPropertyLists.isEmpty())
+				classDynamicPropertyLists.put(gcn, dynamicPropertyLists);
+
 			// @GodotMethod(virtual=true) script-virtual methods
 			for (MethodInfo mi : methods) {
 				for (Element member : typeElement.getEnclosedElements()) {
@@ -680,7 +709,8 @@ public class GodotClassProcessor extends AbstractProcessor {
 			try (Writer w = sourceFile.openWriter()) {
 				writeDispatchIndex(w, classMethods, classFields, classSignals, classVirtualOverrides, virtualHashData,
 						virtualAllNames, classRpcConfigs, classConstants, classVirtualScriptMethods, classDocs,
-						methodDocs, propertyDocs, signalDocs, constantDocs);
+						methodDocs, propertyDocs, signalDocs, constantDocs, classDynamicGetters, classDynamicSetters,
+						classDynamicPropertyLists);
 			}
 
 			processingEnv.getMessager().printMessage(Diagnostic.Kind.NOTE,
@@ -698,8 +728,9 @@ public class GodotClassProcessor extends AbstractProcessor {
 			Map<String, List<RpcInfo>> classRpcConfigs, Map<String, List<ConstantInfo>> classConstants,
 			Map<String, List<VirtualMethodInfo>> classVirtualScriptMethods, Map<String, ClassDoc> classDocs,
 			Map<String, Map<String, MethodDoc>> methodDocs, Map<String, Map<String, PropertyDoc>> propertyDocs,
-			Map<String, Map<String, SignalDoc>> signalDocs, Map<String, Map<String, ConstantDoc>> constantDocs)
-			throws IOException {
+			Map<String, Map<String, SignalDoc>> signalDocs, Map<String, Map<String, ConstantDoc>> constantDocs,
+			Map<String, List<String>> classDynamicGetters, Map<String, List<String>> classDynamicSetters,
+			Map<String, List<String>> classDynamicPropertyLists) throws IOException {
 
 		// --- Package + imports ---
 		w.write("package " + REGISTRY_PACKAGE + ";\n\n");
@@ -1418,6 +1449,129 @@ public class GodotClassProcessor extends AbstractProcessor {
 			w.write("    }\n\n");
 		}
 
+		// --- Dynamic property dispatch ---
+		w.write("    public boolean hasDynamicGetter(String godotClassName) {\n");
+		w.write("        return dynamicGetterMHs.containsKey(godotClassName);\n");
+		w.write("    }\n\n");
+		w.write("    public boolean hasDynamicSetter(String godotClassName) {\n");
+		w.write("        return dynamicSetterMHs.containsKey(godotClassName);\n");
+		w.write("    }\n\n");
+		w.write("    public boolean hasDynamicPropertyList(String godotClassName) {\n");
+		w.write("        return dynamicPropertyListMHs.containsKey(godotClassName);\n");
+		w.write("    }\n\n");
+
+		w.write("    public Object dispatchDynamicGet(String godotClassName, Godot instance, String propertyName) {\n");
+		w.write("        MethodHandle mh = dynamicGetterMHs.get(godotClassName);\n");
+		w.write("        if (mh == null) return null;\n");
+		w.write("        try {\n");
+		w.write("            return mh.invoke(instance, propertyName);\n");
+		w.write("        } catch (Throwable t) {\n");
+		w.write("            throw new RuntimeException(t);\n");
+		w.write("        }\n");
+		w.write("    }\n\n");
+
+		w.write("    public boolean dispatchDynamicSet(String godotClassName, Godot instance, String propertyName, Object value) {\n");
+		w.write("        MethodHandle mh = dynamicSetterMHs.get(godotClassName);\n");
+		w.write("        if (mh == null) return false;\n");
+		w.write("        try {\n");
+		w.write("            mh.invoke(instance, propertyName, value);\n");
+		w.write("            return true;\n");
+		w.write("        } catch (Throwable t) {\n");
+		w.write("            throw new RuntimeException(t);\n");
+		w.write("        }\n");
+		w.write("    }\n\n");
+
+		w.write("    public Object dispatchDynamicPropertyList(String godotClassName, Godot instance) {\n");
+		w.write("        MethodHandle mh = dynamicPropertyListMHs.get(godotClassName);\n");
+		w.write("        if (mh == null) return null;\n");
+		w.write("        try {\n");
+		w.write("            return mh.invoke(instance);\n");
+		w.write("        } catch (Throwable t) {\n");
+		w.write("            throw new RuntimeException(t);\n");
+		w.write("        }\n");
+		w.write("    }\n\n");
+
+		// --- Dynamic property MethodHandle fields ---
+		if (!classDynamicGetters.isEmpty() || !classDynamicSetters.isEmpty() || !classDynamicPropertyLists.isEmpty()) {
+			w.write("    private static final Map<String, MethodHandle> dynamicGetterMHs;\n");
+			w.write("    private static final Map<String, MethodHandle> dynamicSetterMHs;\n");
+			w.write("    private static final Map<String, MethodHandle> dynamicPropertyListMHs;\n");
+			w.write("    static {\n");
+			w.write("        Map<String, MethodHandle> gMap = new HashMap<>();\n");
+			w.write("        Map<String, MethodHandle> sMap = new HashMap<>();\n");
+			w.write("        Map<String, MethodHandle> pMap = new HashMap<>();\n");
+
+			for (Map.Entry<String, List<String>> dynEntry : classDynamicGetters.entrySet()) {
+				String dynGcn = dynEntry.getKey();
+				ClassEntry dynEntryObj = null;
+				for (ClassEntry ce : discoveredClasses) {
+					if (ce.godotClassName().equals(dynGcn)) {
+						dynEntryObj = ce;
+						break;
+					}
+				}
+				if (dynEntryObj == null)
+					continue;
+				String dynFqn = dynEntryObj.fqn();
+				String dynSimple = dynFqn.substring(dynFqn.lastIndexOf('.') + 1);
+				for (String methodName : dynEntry.getValue()) {
+					w.write("        try { gMap.put(\"" + dynGcn + "\", MethodHandles.lookup().findVirtual(" + dynSimple
+							+ ".class, \"" + methodName + "\", MethodType.methodType(Object.class, String.class))); }"
+							+ " catch (Exception e) { throw new ExceptionInInitializerError(e); }\n");
+				}
+			}
+
+			for (Map.Entry<String, List<String>> dynEntry : classDynamicSetters.entrySet()) {
+				String dynGcn = dynEntry.getKey();
+				ClassEntry dynEntryObj = null;
+				for (ClassEntry ce : discoveredClasses) {
+					if (ce.godotClassName().equals(dynGcn)) {
+						dynEntryObj = ce;
+						break;
+					}
+				}
+				if (dynEntryObj == null)
+					continue;
+				String dynFqn = dynEntryObj.fqn();
+				String dynSimple = dynFqn.substring(dynFqn.lastIndexOf('.') + 1);
+				for (String methodName : dynEntry.getValue()) {
+					w.write("        try { sMap.put(\"" + dynGcn + "\", MethodHandles.lookup().findVirtual(" + dynSimple
+							+ ".class, \"" + methodName
+							+ "\", MethodType.methodType(boolean.class, String.class, Object.class))); }"
+							+ " catch (Exception e) { throw new ExceptionInInitializerError(e); }\n");
+				}
+			}
+
+			for (Map.Entry<String, List<String>> dynEntry : classDynamicPropertyLists.entrySet()) {
+				String dynGcn = dynEntry.getKey();
+				ClassEntry dynEntryObj = null;
+				for (ClassEntry ce : discoveredClasses) {
+					if (ce.godotClassName().equals(dynGcn)) {
+						dynEntryObj = ce;
+						break;
+					}
+				}
+				if (dynEntryObj == null)
+					continue;
+				String dynFqn = dynEntryObj.fqn();
+				String dynSimple = dynFqn.substring(dynFqn.lastIndexOf('.') + 1);
+				for (String methodName : dynEntry.getValue()) {
+					w.write("        try { pMap.put(\"" + dynGcn + "\", MethodHandles.lookup().findVirtual(" + dynSimple
+							+ ".class, \"" + methodName + "\", MethodType.methodType(Object.class))); }"
+							+ " catch (Exception e) { throw new ExceptionInInitializerError(e); }\n");
+				}
+			}
+
+			w.write("        dynamicGetterMHs = Collections.unmodifiableMap(gMap);\n");
+			w.write("        dynamicSetterMHs = Collections.unmodifiableMap(sMap);\n");
+			w.write("        dynamicPropertyListMHs = Collections.unmodifiableMap(pMap);\n");
+			w.write("    }\n\n");
+		} else {
+			w.write("    private static final Map<String, MethodHandle> dynamicGetterMHs = Collections.emptyMap();\n");
+			w.write("    private static final Map<String, MethodHandle> dynamicSetterMHs = Collections.emptyMap();\n");
+			w.write("    private static final Map<String, MethodHandle> dynamicPropertyListMHs = Collections.emptyMap();\n\n");
+		}
+
 		w.write("}\n");
 	}
 
@@ -1620,7 +1774,8 @@ public class GodotClassProcessor extends AbstractProcessor {
 				continue;
 
 			List<SignalInfo> signals = new ArrayList<>();
-			collectMembers(typeElement, new ArrayList<>(), new ArrayList<>(), signals, new ArrayList<>());
+			collectMembers(typeElement, new ArrayList<>(), new ArrayList<>(), signals, new ArrayList<>(),
+					new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
 
 			List<SignalInfo> supported = new ArrayList<>();
 			for (SignalInfo si : signals) {
