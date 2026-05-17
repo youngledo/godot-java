@@ -2,9 +2,10 @@
 name: push-and-release
 description: >
   Automate push and release workflows for the godot-java project.
-  (1) "推送代码" — push code and monitor CI only.
-  (2) "发布版本" — full release: strip SNAPSHOT, push, CI, tag, publish to Maven Central,
-  update downstream repos (godot-java-template, godot-java-3d-demo, godot-java-demo-projects).
+  (1) "推送代码" / "push code" — push code and monitor CI only.
+  (2) "发布版本" / "release version" — full release: strip SNAPSHOT, push, CI, tag, publish
+  to Maven Central, update downstream repos (godot-java-template, godot-java-3d-demo,
+  godot-java-demo-projects).
   Only applicable in the godot-java project directory.
 ---
 
@@ -14,8 +15,8 @@ Two modes: push-only vs full release. Shared CI monitoring and failure handling.
 
 ## Mode Selection
 
-- User says "推送代码" → **Push mode** (Step 1 → Step 2 → done)
-- User says "发布版本" → **Release mode** (Step 0 → Step 1 → Step 2 → Step 3 → Step 4 → Step 5 → done)
+- User says "推送代码" or "push code" → **Push mode** (Step 1 → Step 2 → done)
+- User says "发布版本" or "release version" → **Release mode** (Step 0 → Step 1 → Step 2 → Step 3 → Step 4 → Step 5 → done)
 
 ## Prerequisites
 
