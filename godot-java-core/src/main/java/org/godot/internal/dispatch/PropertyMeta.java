@@ -5,9 +5,16 @@ package org.godot.internal.dispatch;
  * DispatchIndex.
  */
 public record PropertyMeta(String javaName, String godotName, String typeName, int hintId, String hintString, int usage,
-		String group, String groupHint, String subgroup, String subgroupHint) {
+		String getter, String setter, boolean readOnly, String group, String groupHint, String subgroup,
+		String subgroupHint) {
 
 	public PropertyMeta(String javaName, String godotName, String typeName, int hintId, String hintString) {
-		this(javaName, godotName, typeName, hintId, hintString, 1 | 2 | 4 | 8, "", "", "", "");
+		this(javaName, godotName, typeName, hintId, hintString, 1 | 2 | 4 | 8, "", "", false, "", "", "", "");
+	}
+
+	public PropertyMeta(String javaName, String godotName, String typeName, int hintId, String hintString, int usage,
+			String group, String groupHint, String subgroup, String subgroupHint) {
+		this(javaName, godotName, typeName, hintId, hintString, usage, "", "", false, group, groupHint, subgroup,
+				subgroupHint);
 	}
 }
