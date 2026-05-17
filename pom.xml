@@ -33,7 +33,7 @@
     </scm>
 
     <properties>
-        <revision>0.2.1-SNAPSHOT</revision>
+        <revision>0.3.0</revision>
         <maven.compiler.release>25</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <gpg.skip>true</gpg.skip>
