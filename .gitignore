@@ -10,7 +10,7 @@ target/
 bin/
 
 ### AI
-.claude/
+.claude/settings.local.json
 openspec/
 
 ### Godot
