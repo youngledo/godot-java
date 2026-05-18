@@ -286,6 +286,15 @@ public final class VirtualDispatch {
 		String godotClassName = resolveGodotClassName(obj);
 
 		if (godotClassName != null && Dispatch.isAvailable()) {
+			// Initialize @OnReady fields before _ready()
+			if ("_ready".equals(methodName)) {
+				try {
+					Dispatch.initOnReadyFields(godotClassName, obj);
+				} catch (Exception e) {
+					logger.error("Error in initOnReadyFields for {}: {}", godotClassName, e.getMessage());
+				}
+			}
+
 			// In editor mode, suppress virtual callbacks for non-tool classes.
 			// This matches gdext's EditorRunBehavior.ToolClassesOnly behavior.
 			if (org.godot.singleton.Engine.singleton().isEditorHint() && !Dispatch.isToolClass(godotClassName)) {

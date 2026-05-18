@@ -47,7 +47,7 @@ import java.util.StringJoiner;
 		"org.godot.annotation.GodotMethod", "org.godot.annotation.Export", "org.godot.annotation.Signal",
 		"org.godot.annotation.Rpc", "org.godot.annotation.Tool", "org.godot.annotation.Constant",
 		"org.godot.annotation.GetProperty", "org.godot.annotation.SetProperty", "org.godot.annotation.GetPropertyList",
-		"org.godot.annotation.ValidateProperty"})
+		"org.godot.annotation.ValidateProperty", "org.godot.annotation.OnReady"})
 @javax.annotation.processing.SupportedSourceVersion(SourceVersion.RELEASE_25)
 public class GodotClassProcessor extends AbstractProcessor {
 
@@ -224,13 +224,17 @@ public class GodotClassProcessor extends AbstractProcessor {
 	private record ConstantDoc(String description) {
 	}
 
+	private record OnReadyFieldInfo(String javaName, String typeName, int modeOrdinal, String nodePath) {
+	}
+
 	// -----------------------------------------------------------------------
 	// Member collection
 	// -----------------------------------------------------------------------
 
 	private void collectMembers(TypeElement typeElement, List<MethodInfo> methods, List<FieldInfo> fields,
 			List<SignalInfo> signals, List<ConstantInfo> constants, List<String> dynamicGetters,
-			List<String> dynamicSetters, List<String> dynamicPropertyLists, List<String> validatePropertyMethods) {
+			List<String> dynamicSetters, List<String> dynamicPropertyLists, List<String> validatePropertyMethods,
+			List<OnReadyFieldInfo> onReadyFields) {
 		String currentGroup = "";
 		String currentGroupHint = "";
 		String currentSubgroup = "";
@@ -337,6 +341,18 @@ public class GodotClassProcessor extends AbstractProcessor {
 					fields.add(new FieldInfo(field.getSimpleName().toString(), propName,
 							typeToDescriptor(field.asType()), hintId, hintString, usage, currentGroup, currentGroupHint,
 							currentSubgroup, currentSubgroupHint, getter, setter, readOnly));
+				}
+				// Collect @OnReady fields
+				if (field.getAnnotation(org.godot.annotation.OnReady.class) != null) {
+					org.godot.annotation.OnReady onReadyAnn = field.getAnnotation(org.godot.annotation.OnReady.class);
+					String nodePath = onReadyAnn.node();
+					int modeOrdinal = onReadyAnn.mode().ordinal();
+					// Auto-detect NODE mode if node path is set
+					if (!nodePath.isEmpty() && modeOrdinal == 0) {
+						modeOrdinal = 1; // NODE
+					}
+					onReadyFields.add(new OnReadyFieldInfo(field.getSimpleName().toString(),
+							typeToDescriptor(field.asType()), modeOrdinal, nodePath));
 				}
 			}
 		}
@@ -509,6 +525,7 @@ public class GodotClassProcessor extends AbstractProcessor {
 		Map<String, List<String>> classDynamicSetters = new LinkedHashMap<>();
 		Map<String, List<String>> classDynamicPropertyLists = new LinkedHashMap<>();
 		Map<String, String> classValidateProperty = new LinkedHashMap<>();
+		Map<String, List<OnReadyFieldInfo>> classOnReadyFields = new LinkedHashMap<>();
 
 		Map<String, ClassDoc> classDocs = new LinkedHashMap<>();
 		Map<String, Map<String, MethodDoc>> methodDocs = new LinkedHashMap<>();
@@ -529,8 +546,9 @@ public class GodotClassProcessor extends AbstractProcessor {
 			List<String> dynamicSetters = new ArrayList<>();
 			List<String> dynamicPropertyLists = new ArrayList<>();
 			List<String> validatePropertyMethods = new ArrayList<>();
+			List<OnReadyFieldInfo> onReadyFields = new ArrayList<>();
 			collectMembers(typeElement, methods, fields, signals, constants, dynamicGetters, dynamicSetters,
-					dynamicPropertyLists, validatePropertyMethods);
+					dynamicPropertyLists, validatePropertyMethods, onReadyFields);
 
 			String gcn = entry.godotClassName();
 			if (!methods.isEmpty())
@@ -721,7 +739,7 @@ public class GodotClassProcessor extends AbstractProcessor {
 				writeDispatchIndex(w, classMethods, classFields, classSignals, classVirtualOverrides, virtualHashData,
 						virtualAllNames, classRpcConfigs, classConstants, classVirtualScriptMethods, classDocs,
 						methodDocs, propertyDocs, signalDocs, constantDocs, classDynamicGetters, classDynamicSetters,
-						classDynamicPropertyLists, classValidateProperty);
+						classDynamicPropertyLists, classValidateProperty, classOnReadyFields);
 			}
 
 			processingEnv.getMessager().printMessage(Diagnostic.Kind.NOTE,
@@ -741,8 +759,8 @@ public class GodotClassProcessor extends AbstractProcessor {
 			Map<String, Map<String, MethodDoc>> methodDocs, Map<String, Map<String, PropertyDoc>> propertyDocs,
 			Map<String, Map<String, SignalDoc>> signalDocs, Map<String, Map<String, ConstantDoc>> constantDocs,
 			Map<String, List<String>> classDynamicGetters, Map<String, List<String>> classDynamicSetters,
-			Map<String, List<String>> classDynamicPropertyLists, Map<String, String> classValidateProperty)
-			throws IOException {
+			Map<String, List<String>> classDynamicPropertyLists, Map<String, String> classValidateProperty,
+			Map<String, List<OnReadyFieldInfo>> classOnReadyFields) throws IOException {
 
 		// --- Package + imports ---
 		w.write("package " + REGISTRY_PACKAGE + ";\n\n");
@@ -1650,6 +1668,48 @@ public class GodotClassProcessor extends AbstractProcessor {
 			w.write("    public boolean dispatchValidateProperty(String godotClassName, Godot instance, String propertyName, long propertyInfoPtr) { return true; }\n\n");
 		}
 
+		// --- @OnReady field initialization ---
+		if (!classOnReadyFields.isEmpty()) {
+			w.write("    public void initOnReadyFields(String godotClassName, Godot instance) {\n");
+			w.write("        switch (godotClassName) {\n");
+			for (var e : classOnReadyFields.entrySet()) {
+				String gcn = e.getKey();
+				String classSimpleName = getClassSimpleName(gcn);
+				w.write("            case \"" + gcn + "\" -> _initOnReady_" + sanitize(gcn) + "((" + classSimpleName
+						+ ") instance);\n");
+			}
+			w.write("            default -> {}\n");
+			w.write("        }\n");
+			w.write("    }\n\n");
+
+			// Per-class @OnReady init methods
+			for (var e : classOnReadyFields.entrySet()) {
+				String gcn = e.getKey();
+				String classSimpleName = getClassSimpleName(gcn);
+				w.write("    private static void _initOnReady_" + sanitize(gcn) + "(" + classSimpleName + " self) {\n");
+				for (OnReadyFieldInfo field : e.getValue()) {
+					switch (field.modeOrdinal()) {
+						case 0 -> { // NEW - default constructor
+							w.write("        try { self." + field.javaName() + " = new " + field.typeName()
+									+ "(); } catch (Throwable t) { System.err.println(\"WARN: @OnReady NEW init failed for "
+									+ field.javaName() + ": \" + t.getMessage()); }\n");
+						}
+						case 1 -> { // NODE - load from scene tree
+							w.write("        { Object _node = self.call(\"get_node\", \"" + escapeJava(field.nodePath())
+									+ "\"); if (_node != null) self." + field.javaName() + " = (" + field.typeName()
+									+ ") _node; else System.err.println(\"WARN: @OnReady NODE '"
+									+ escapeJava(field.nodePath()) + "' not found for " + field.javaName()
+									+ "\"); }\n");
+						}
+						case 2 -> { // MANUAL - skip
+						}
+					}
+				}
+				w.write("    }\n\n");
+			}
+		} else {
+			w.write("    public void initOnReadyFields(String godotClassName, Godot instance) {}\n\n");
+		}
 		w.write("}\n");
 	}
 
@@ -1853,7 +1913,7 @@ public class GodotClassProcessor extends AbstractProcessor {
 
 			List<SignalInfo> signals = new ArrayList<>();
 			collectMembers(typeElement, new ArrayList<>(), new ArrayList<>(), signals, new ArrayList<>(),
-					new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
+					new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
 
 			List<SignalInfo> supported = new ArrayList<>();
 			for (SignalInfo si : signals) {

@@ -169,6 +169,10 @@ public final class Dispatch {
 		return accessor.dispatchValidateProperty(className, instance, propertyName, propertyInfoPtr);
 	}
 
+	public static void initOnReadyFields(String className, Godot instance) {
+		accessor.initOnReadyFields(className, instance);
+	}
+
 	private Dispatch() {
 	}
 
@@ -346,6 +350,10 @@ public final class Dispatch {
 		@Override
 		public boolean dispatchValidateProperty(String c, Godot i, String p, long pi) {
 			return true;
+		}
+
+		@Override
+		public void initOnReadyFields(String c, Godot i) {
 		}
 	}
 }

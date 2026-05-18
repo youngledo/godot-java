@@ -86,4 +86,7 @@ public interface DispatchAccessor {
 	boolean hasValidateProperty(String godotClassName);
 
 	boolean dispatchValidateProperty(String godotClassName, Godot instance, String propertyName, long propertyInfoPtr);
+
+	/// Initialize @OnReady fields for the given class before _ready().
+	void initOnReadyFields(String godotClassName, Godot instance);
 }
