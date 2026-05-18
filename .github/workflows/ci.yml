@@ -342,11 +342,11 @@ jobs:
       matrix:
         include:
           - godot_version: '4.3-stable'
-            api_url: 'https://raw.githubusercontent.com/godotengine/godot/4.3-stable/extension_api.json'
+            api_url: 'https://raw.githubusercontent.com/godotengine/godot-headers/godot-4.3-stable/extension_api.json'
           - godot_version: '4.4-stable'
-            api_url: 'https://raw.githubusercontent.com/godotengine/godot/4.4-stable/extension_api.json'
+            api_url: 'https://raw.githubusercontent.com/godotengine/godot-headers/godot-4.4-stable/extension_api.json'
           - godot_version: '4.5-stable'
-            api_url: 'https://raw.githubusercontent.com/godotengine/godot/4.5-stable/extension_api.json'
+            api_url: 'https://raw.githubusercontent.com/godotengine/godot-headers/godot-4.5-stable/extension_api.json'
 
     steps:
       - uses: actions/checkout@v4
