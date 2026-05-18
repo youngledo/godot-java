@@ -12,6 +12,7 @@ bin/
 ### AI
 .claude/settings.local.json
 openspec/
+docs/superpowers
 
 ### Godot
 .godot/

@@ -18,6 +18,12 @@ Prefer Java 25 high-performance features over legacy APIs:
 | Immutable data | `record` | Hand-written POJOs |
 | Pattern matching | `switch` patterns, `instanceof` patterns | Cascading `if-else` + casts |
 | String templates | String templates (when available) | String concatenation |
+| Lightweight concurrency | Virtual Threads | Platform threads, `ExecutorService` |
+| Structured concurrency | `StructuredTaskScope` | `CompletableFuture` |
+| Null safety | `Optional` | Raw `null` returns |
+| Sealed hierarchies | `sealed` classes | Open class hierarchies |
+| Local variable inference | `var` | Redundant type declarations |
+| Multi-line strings | Text blocks (`"""`) | `+` concatenation |
 
 ## Architecture Constraints
 
