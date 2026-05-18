@@ -1727,6 +1727,33 @@ public abstract class Godot {
 	public void _accessibilityInvalidate() {
 	}
 
+	/// Called when the node enters a World2D or World3D.
+	public void _enterWorld() {
+	}
+
+	/// Called when the node exits a World2D or World3D.
+	public void _exitWorld() {
+	}
+
+	/// Emitted when the node's visibility changes.
+	public void _visibilityChanged() {
+	}
+
+	/// Called when the Control needs to update its minimum size.
+	public void _minimumSizeChanged() {
+	}
+
+	/// Called when the theme changes on this Control.
+	public void _themeChanged() {
+	}
+
+	/// Override to handle property revert values in the editor.
+	/// @param propertyName the property name to get revert value for
+	/// @return the revert value, or null if no revert value exists
+	public Object _propertyGetRevert(String propertyName) {
+		return null;
+	}
+
 	public void onNotification(int what) {
 		_notification(what);
 		switch (what) {
