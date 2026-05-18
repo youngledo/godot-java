@@ -702,10 +702,28 @@ public final class InstanceCallbacks {
 	// ------------------------------------------------------------------------
 
 	/**
-	 * validate_property_func: basic validation pass-through. Always returns true
-	 * (property is valid). Can be extended later for range/enumeration validation.
+	 * validate_property_func: validates property values via Dispatch.
+	 *
+	 * If the class has a @ValidateProperty method, reads the property name from the
+	 * PropertyInfo struct and delegates to the user's validator. Otherwise returns
+	 * true (property is valid).
 	 */
 	static int validatePropertyFunc(long instancePtr, long propertyInfoPtr) {
+		Godot obj = JavaObjectMap.get(instancePtr);
+		if (obj == null)
+			return 1;
+
+		String className = resolveGodotClassName(obj);
+		if (className == null)
+			return 1;
+
+		if (Dispatch.hasValidateProperty(className)) {
+			long namePtr = MemorySegment.ofAddress(propertyInfoPtr).get(ADDRESS, StructOffsets.PROPERTY_INFO_OFF_NAME)
+					.address();
+			String propName = stringNamePtrToString(namePtr);
+			return Dispatch.dispatchValidateProperty(className, obj, propName, propertyInfoPtr) ? 1 : 0;
+		}
+
 		return 1;
 	}
 

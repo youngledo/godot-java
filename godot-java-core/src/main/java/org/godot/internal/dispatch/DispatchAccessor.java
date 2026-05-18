@@ -80,4 +80,8 @@ public interface DispatchAccessor {
 	boolean dispatchDynamicSet(String godotClassName, Godot instance, String propertyName, Object value);
 
 	Object dispatchDynamicPropertyList(String godotClassName, Godot instance);
+
+	boolean hasValidateProperty(String godotClassName);
+
+	boolean dispatchValidateProperty(String godotClassName, Godot instance, String propertyName, long propertyInfoPtr);
 }

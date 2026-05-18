@@ -156,6 +156,15 @@ public final class Dispatch {
 		return accessor.dispatchDynamicPropertyList(className, instance);
 	}
 
+	public static boolean hasValidateProperty(String className) {
+		return accessor.hasValidateProperty(className);
+	}
+
+	public static boolean dispatchValidateProperty(String className, Godot instance, String propertyName,
+			long propertyInfoPtr) {
+		return accessor.dispatchValidateProperty(className, instance, propertyName, propertyInfoPtr);
+	}
+
 	private Dispatch() {
 	}
 
@@ -318,6 +327,16 @@ public final class Dispatch {
 		@Override
 		public Object dispatchDynamicPropertyList(String c, Godot i) {
 			return null;
+		}
+
+		@Override
+		public boolean hasValidateProperty(String c) {
+			return false;
+		}
+
+		@Override
+		public boolean dispatchValidateProperty(String c, Godot i, String p, long pi) {
+			return true;
 		}
 	}
 }

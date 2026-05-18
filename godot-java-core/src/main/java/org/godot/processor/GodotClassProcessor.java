@@ -28,6 +28,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.StringJoiner;
 
 /**
  * Compile-time annotation processor for godot-java.
@@ -45,7 +46,8 @@ import java.util.Set;
 @javax.annotation.processing.SupportedAnnotationTypes({"org.godot.annotation.GodotClass",
 		"org.godot.annotation.GodotMethod", "org.godot.annotation.Export", "org.godot.annotation.Signal",
 		"org.godot.annotation.Rpc", "org.godot.annotation.Tool", "org.godot.annotation.Constant",
-		"org.godot.annotation.GetProperty", "org.godot.annotation.SetProperty", "org.godot.annotation.GetPropertyList"})
+		"org.godot.annotation.GetProperty", "org.godot.annotation.SetProperty", "org.godot.annotation.GetPropertyList",
+		"org.godot.annotation.ValidateProperty"})
 @javax.annotation.processing.SupportedSourceVersion(SourceVersion.RELEASE_25)
 public class GodotClassProcessor extends AbstractProcessor {
 
@@ -227,7 +229,7 @@ public class GodotClassProcessor extends AbstractProcessor {
 
 	private void collectMembers(TypeElement typeElement, List<MethodInfo> methods, List<FieldInfo> fields,
 			List<SignalInfo> signals, List<ConstantInfo> constants, List<String> dynamicGetters,
-			List<String> dynamicSetters, List<String> dynamicPropertyLists) {
+			List<String> dynamicSetters, List<String> dynamicPropertyLists, List<String> validatePropertyMethods) {
 		String currentGroup = "";
 		String currentGroupHint = "";
 		String currentSubgroup = "";
@@ -266,6 +268,10 @@ public class GodotClassProcessor extends AbstractProcessor {
 				}
 				if (method.getAnnotation(org.godot.annotation.GetPropertyList.class) != null) {
 					dynamicPropertyLists.add(method.getSimpleName().toString());
+					continue;
+				}
+				if (method.getAnnotation(org.godot.annotation.ValidateProperty.class) != null) {
+					validatePropertyMethods.add(method.getSimpleName().toString());
 					continue;
 				}
 				// Only collect public, non-static methods (skip Object/Godot overrides)
@@ -501,6 +507,7 @@ public class GodotClassProcessor extends AbstractProcessor {
 		Map<String, List<String>> classDynamicGetters = new LinkedHashMap<>();
 		Map<String, List<String>> classDynamicSetters = new LinkedHashMap<>();
 		Map<String, List<String>> classDynamicPropertyLists = new LinkedHashMap<>();
+		Map<String, String> classValidateProperty = new LinkedHashMap<>();
 
 		Map<String, ClassDoc> classDocs = new LinkedHashMap<>();
 		Map<String, Map<String, MethodDoc>> methodDocs = new LinkedHashMap<>();
@@ -520,8 +527,9 @@ public class GodotClassProcessor extends AbstractProcessor {
 			List<String> dynamicGetters = new ArrayList<>();
 			List<String> dynamicSetters = new ArrayList<>();
 			List<String> dynamicPropertyLists = new ArrayList<>();
+			List<String> validatePropertyMethods = new ArrayList<>();
 			collectMembers(typeElement, methods, fields, signals, constants, dynamicGetters, dynamicSetters,
-					dynamicPropertyLists);
+					dynamicPropertyLists, validatePropertyMethods);
 
 			String gcn = entry.godotClassName();
 			if (!methods.isEmpty())
@@ -641,6 +649,8 @@ public class GodotClassProcessor extends AbstractProcessor {
 				classDynamicSetters.put(gcn, dynamicSetters);
 			if (!dynamicPropertyLists.isEmpty())
 				classDynamicPropertyLists.put(gcn, dynamicPropertyLists);
+			if (!validatePropertyMethods.isEmpty())
+				classValidateProperty.put(gcn, validatePropertyMethods.get(0));
 
 			// @GodotMethod(virtual=true) script-virtual methods
 			for (MethodInfo mi : methods) {
@@ -710,7 +720,7 @@ public class GodotClassProcessor extends AbstractProcessor {
 				writeDispatchIndex(w, classMethods, classFields, classSignals, classVirtualOverrides, virtualHashData,
 						virtualAllNames, classRpcConfigs, classConstants, classVirtualScriptMethods, classDocs,
 						methodDocs, propertyDocs, signalDocs, constantDocs, classDynamicGetters, classDynamicSetters,
-						classDynamicPropertyLists);
+						classDynamicPropertyLists, classValidateProperty);
 			}
 
 			processingEnv.getMessager().printMessage(Diagnostic.Kind.NOTE,
@@ -730,7 +740,8 @@ public class GodotClassProcessor extends AbstractProcessor {
 			Map<String, Map<String, MethodDoc>> methodDocs, Map<String, Map<String, PropertyDoc>> propertyDocs,
 			Map<String, Map<String, SignalDoc>> signalDocs, Map<String, Map<String, ConstantDoc>> constantDocs,
 			Map<String, List<String>> classDynamicGetters, Map<String, List<String>> classDynamicSetters,
-			Map<String, List<String>> classDynamicPropertyLists) throws IOException {
+			Map<String, List<String>> classDynamicPropertyLists, Map<String, String> classValidateProperty)
+			throws IOException {
 
 		// --- Package + imports ---
 		w.write("package " + REGISTRY_PACKAGE + ";\n\n");
@@ -1572,6 +1583,53 @@ public class GodotClassProcessor extends AbstractProcessor {
 			w.write("    private static final Map<String, MethodHandle> dynamicPropertyListMHs = Collections.emptyMap();\n\n");
 		}
 
+		// --- Validate property dispatch ---
+		if (!classValidateProperty.isEmpty()) {
+			w.write("    private static final Set<String> _HAS_VALIDATE_PROPERTY = Set.of(");
+			StringJoiner vj = new StringJoiner(", ");
+			for (String vn : classValidateProperty.keySet()) {
+				vj.add("\"" + vn + "\"");
+			}
+			w.write(vj.toString());
+			w.write(");\n");
+
+			w.write("    public boolean hasValidateProperty(String godotClassName) {\n");
+			w.write("        return _HAS_VALIDATE_PROPERTY.contains(godotClassName);\n");
+			w.write("    }\n\n");
+
+			w.write("    public boolean dispatchValidateProperty(String godotClassName, Godot instance, String propertyName, long propertyInfoPtr) {\n");
+			for (Map.Entry<String, String> vpEntry : classValidateProperty.entrySet()) {
+				String vpGcn = vpEntry.getKey();
+				String vpMethod = vpEntry.getValue();
+				// Find the class simple name
+				String vpFqn = null;
+				for (ClassEntry ce : discoveredClasses) {
+					if (ce.godotClassName().equals(vpGcn)) {
+						vpFqn = ce.fqn();
+						break;
+					}
+				}
+				if (vpFqn == null)
+					continue;
+				String vpSimple = vpFqn.substring(vpFqn.lastIndexOf('.') + 1);
+				w.write("        if (godotClassName.equals(\"" + vpGcn + "\")) {\n");
+				w.write("            try {\n");
+				w.write("                MethodHandle mh = MethodHandles.lookup().findVirtual(" + vpSimple
+						+ ".class, \"" + vpMethod
+						+ "\", MethodType.methodType(boolean.class, String.class, long.class));\n");
+				w.write("                return (boolean) mh.invoke(instance, propertyName, propertyInfoPtr);\n");
+				w.write("            } catch (Throwable t) {\n");
+				w.write("                throw new RuntimeException(t);\n");
+				w.write("            }\n");
+				w.write("        }\n");
+			}
+			w.write("        return true;\n");
+			w.write("    }\n\n");
+		} else {
+			w.write("    public boolean hasValidateProperty(String godotClassName) { return false; }\n");
+			w.write("    public boolean dispatchValidateProperty(String godotClassName, Godot instance, String propertyName, long propertyInfoPtr) { return true; }\n\n");
+		}
+
 		w.write("}\n");
 	}
 
@@ -1775,7 +1833,7 @@ public class GodotClassProcessor extends AbstractProcessor {
 
 			List<SignalInfo> signals = new ArrayList<>();
 			collectMembers(typeElement, new ArrayList<>(), new ArrayList<>(), signals, new ArrayList<>(),
-					new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
+					new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
 
 			List<SignalInfo> supported = new ArrayList<>();
 			for (SignalInfo si : signals) {
