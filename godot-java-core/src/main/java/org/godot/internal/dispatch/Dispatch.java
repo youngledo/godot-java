@@ -27,7 +27,7 @@ public final class Dispatch {
 			MethodHandle mh = MethodHandles.lookup().findStaticGetter(cls, "INSTANCE", DispatchAccessor.class);
 			a = (DispatchAccessor) mh.invoke();
 		} catch (Throwable e) {
-			logger.error("Failed to load DispatchIndex: {}", e.getMessage());
+			logger.error("Failed to load DispatchIndex", e);
 			a = new NoOpAccessor();
 		}
 		accessor = a;
