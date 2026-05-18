@@ -439,6 +439,21 @@ static std::vector<std::string> get_jvm_search_paths() {
 }
 
 static std::string find_jvm_library() {
+    // Priority 1: Adjacent runtime/ directory (jlink-generated)
+    std::string lib_dir = get_native_library_dir();
+    if (!lib_dir.empty()) {
+#if defined(_WIN32)
+        std::string runtime_jvm = path_join(lib_dir, "runtime\\bin\\server\\jvm.dll");
+#else
+        std::string runtime_jvm = path_join(lib_dir, "runtime/lib/server/" + std::string(JVM_LIB_NAME));
+#endif
+        void* test = platform_dlopen(runtime_jvm.c_str());
+        if (test) {
+            platform_dlclose(test);
+            return runtime_jvm;
+        }
+    }
+
     // First, check JAVA_HOME directly for the JVM library
     std::string java_home = get_env("JAVA_HOME");
     if (!java_home.empty()) {
