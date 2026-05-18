@@ -36,8 +36,55 @@ import static java.lang.foreign.ValueLayout.ADDRESS;
 
 public abstract class Godot {
 
+	// Accessibility notifications
 	public static final int NOTIFICATION_ACCESSIBILITY_UPDATE = 3000;
 	public static final int NOTIFICATION_ACCESSIBILITY_INVALIDATE = 3001;
+
+	/// Node lifecycle notifications
+	public static final int NOTIFICATION_ENTER_TREE = 10;
+	public static final int NOTIFICATION_EXIT_TREE = 11;
+	public static final int NOTIFICATION_READY = 13;
+	public static final int NOTIFICATION_PAUSED = 14;
+	public static final int NOTIFICATION_UNPAUSED = 15;
+	public static final int NOTIFICATION_PHYSICS_PROCESS = 16;
+	public static final int NOTIFICATION_PROCESS = 17;
+	public static final int NOTIFICATION_PARENTED = 18;
+	public static final int NOTIFICATION_UNPARENTED = 19;
+	public static final int NOTIFICATION_SCENE_INSTANTIATED = 20;
+	public static final int NOTIFICATION_DRAG_BEGIN = 21;
+	public static final int NOTIFICATION_DRAG_END = 22;
+	public static final int NOTIFICATION_PATH_CHANGED = 23;
+	public static final int NOTIFICATION_CHILD_ORDER_CHANGED = 24;
+	public static final int NOTIFICATION_INTERNAL_PROCESS = 25;
+	public static final int NOTIFICATION_INTERNAL_PHYSICS_PROCESS = 26;
+	public static final int NOTIFICATION_POST_ENTER_TREE = 27;
+
+	/// Window / Application notifications
+	public static final int NOTIFICATION_WM_WINDOW_FOCUS_IN = 1004;
+	public static final int NOTIFICATION_WM_WINDOW_FOCUS_OUT = 1005;
+	public static final int NOTIFICATION_WM_CLOSE_REQUEST = 1006;
+	public static final int NOTIFICATION_WM_GO_BACK_REQUEST = 1007;
+	public static final int NOTIFICATION_APPLICATION_FOCUS_IN = 1008;
+	public static final int NOTIFICATION_APPLICATION_FOCUS_OUT = 1009;
+	public static final int NOTIFICATION_APPLICATION_RESUMED = 1034;
+	public static final int NOTIFICATION_APPLICATION_PAUSED = 1035;
+
+	/// CanvasItem notifications
+	public static final int NOTIFICATION_DRAW = 30;
+	public static final int NOTIFICATION_VISIBILITY_CHANGED = 31;
+	public static final int NOTIFICATION_ENTER_CANVAS = 32;
+	public static final int NOTIFICATION_EXIT_CANVAS = 33;
+
+	/// Control notifications
+	public static final int NOTIFICATION_RESIZED = 40;
+	public static final int NOTIFICATION_MOUSE_ENTER = 41;
+	public static final int NOTIFICATION_MOUSE_EXIT = 42;
+	public static final int NOTIFICATION_FOCUS_ENTER = 43;
+	public static final int NOTIFICATION_FOCUS_EXIT = 44;
+	public static final int NOTIFICATION_THEME_CHANGED = 45;
+	public static final int NOTIFICATION_SCROLL_END = 47;
+	public static final int NOTIFICATION_SCROLL_BEGIN = 48;
+	public static final int NOTIFICATION_LAYOUT_DIRECTION_CHANGED = 49;
 
 	private static final Logger logger = LogManager.getLogger(Godot.class);
 

@@ -86,8 +86,9 @@ public class GodotClassProcessor extends AbstractProcessor {
 							boolean isSingleton = anno.singleton();
 							boolean isInternal = anno.internal();
 							boolean noInit = anno.noInit();
-							discoveredClasses.add(
-									new ClassEntry(fqn, anno.name(), anno.parent(), isTool, isSingleton, isInternal, noInit));
+							discoveredClasses.add(new ClassEntry(fqn, anno.name(), anno.parent(), isTool, isSingleton,
+									isInternal, noInit));
+						}
 					} catch (Exception e) {
 						discoveredClasses.add(new ClassEntry(fqn, typeElement.getSimpleName().toString(), "RefCounted",
 								false, false, false, false));
