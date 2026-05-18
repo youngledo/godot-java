@@ -27,3 +27,4 @@ godot-java-core/native/build/
 ### Log
 *.log
 godot-java-examples/native/
+.claude/worktrees/
