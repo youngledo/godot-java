@@ -124,6 +124,12 @@ public final class InstanceCallbacks {
 			return 0;
 		}
 
+		// Block instantiation of noInit classes (abstract/helper classes)
+		if (Dispatch.isNoInitClass(className)) {
+			logger.debug("createInstanceFunc: blocked instantiation of noInit class '{}'", className);
+			return 0;
+		}
+
 		try {
 			// Look up parent class name for native construction
 			String parentName = PARENT_CLASS_NAMES.getOrDefault(className, "RefCounted");

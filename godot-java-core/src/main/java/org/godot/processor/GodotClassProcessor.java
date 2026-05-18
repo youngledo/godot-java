@@ -85,12 +85,12 @@ public class GodotClassProcessor extends AbstractProcessor {
 							boolean isTool = typeElement.getAnnotation(org.godot.annotation.Tool.class) != null;
 							boolean isSingleton = anno.singleton();
 							boolean isInternal = anno.internal();
+							boolean noInit = anno.noInit();
 							discoveredClasses.add(
-									new ClassEntry(fqn, anno.name(), anno.parent(), isTool, isSingleton, isInternal));
-						}
+									new ClassEntry(fqn, anno.name(), anno.parent(), isTool, isSingleton, isInternal, noInit));
 					} catch (Exception e) {
 						discoveredClasses.add(new ClassEntry(fqn, typeElement.getSimpleName().toString(), "RefCounted",
-								false, false, false));
+								false, false, false, false));
 					}
 				}
 			}
@@ -174,7 +174,7 @@ public class GodotClassProcessor extends AbstractProcessor {
 	// -----------------------------------------------------------------------
 
 	private record ClassEntry(String fqn, String godotClassName, String parentClass, boolean isTool,
-			boolean isSingleton, boolean isInternal) {
+			boolean isSingleton, boolean isInternal, boolean noInit) {
 	}
 
 	private record MethodInfo(String javaName, String godotName, String returnType, List<String> paramTypes,
@@ -1060,6 +1060,19 @@ public class GodotClassProcessor extends AbstractProcessor {
 		w.write("        _INTERNAL_CLASSES = Collections.unmodifiableSet(s);\n");
 		w.write("    }\n");
 		w.write("    public boolean isInternalClass(String name) { return _INTERNAL_CLASSES.contains(name); }\n\n");
+
+		// --- NO_INIT_CLASSES set ---
+		w.write("    private static final Set<String> _NO_INIT_CLASSES;\n");
+		w.write("    static {\n");
+		w.write("        var s = new HashSet<String>();\n");
+		for (ClassEntry entry : discoveredClasses) {
+			if (entry.noInit()) {
+				w.write("        s.add(\"" + entry.godotClassName() + "\");\n");
+			}
+		}
+		w.write("        _NO_INIT_CLASSES = Collections.unmodifiableSet(s);\n");
+		w.write("    }\n");
+		w.write("    public boolean isNoInitClass(String name) { return _NO_INIT_CLASSES.contains(name); }\n\n");
 
 		// --- CONSTANTS map ---
 		if (!classConstants.isEmpty()) {

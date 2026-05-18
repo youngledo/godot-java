@@ -120,6 +120,10 @@ public final class Dispatch {
 		return accessor.isInternalClass(className);
 	}
 
+	public static boolean isNoInitClass(String className) {
+		return accessor.isNoInitClass(className);
+	}
+
 	public static String[][] getConstants(String className) {
 		return accessor.getConstants(className);
 	}
@@ -281,6 +285,11 @@ public final class Dispatch {
 
 		@Override
 		public boolean isInternalClass(String c) {
+			return false;
+		}
+
+		@Override
+		public boolean isNoInitClass(String c) {
 			return false;
 		}
 

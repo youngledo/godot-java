@@ -54,6 +54,8 @@ public interface DispatchAccessor {
 
 	boolean isInternalClass(String godotClassName);
 
+	boolean isNoInitClass(String godotClassName);
+
 	/** Returns constant entries as String[][]: each row is {name, value}. */
 	String[][] getConstants(String godotClassName);
 

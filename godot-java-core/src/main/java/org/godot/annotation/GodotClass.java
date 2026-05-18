@@ -35,4 +35,7 @@ public @interface GodotClass {
 
 	/** If true, hides this class from the Godot editor create dialog. */
 	boolean internal() default false;
+
+	/// If true, this class cannot be instantiated from GDScript or other scripts.
+	boolean noInit() default false;
 }
