@@ -183,5 +183,40 @@
                 <godot.java.native.skip.unpack>true</godot.java.native.skip.unpack>
             </properties>
         </profile>
+        <profile>
+            <id>jlink</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>exec-maven-plugin</artifactId>
+                        <version>3.5.0</version>
+                        <executions>
+                            <execution>
+                                <id>generate-jlink-runtime</id>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>exec</goal>
+                                </goals>
+                                <configuration>
+                                    <executable>jlink</executable>
+                                    <arguments>
+                                        <argument>--add-modules</argument>
+                                        <argument>java.base,java.compiler</argument>
+                                        <argument>--output</argument>
+                                        <argument>${godot.runtime.dir}/runtime</argument>
+                                        <argument>--strip-debug</argument>
+                                        <argument>--compress</argument>
+                                        <argument>zip-6</argument>
+                                        <argument>--no-header-files</argument>
+                                        <argument>--no-man-pages</argument>
+                                    </arguments>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
     </profiles>
 </project>
