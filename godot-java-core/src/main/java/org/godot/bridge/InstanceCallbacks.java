@@ -305,6 +305,11 @@ public final class InstanceCallbacks {
 		if (handled)
 			return 1;
 
+		// Fallback to dynamic setter dispatch
+		if (Dispatch.hasDynamicSetter(className)) {
+			return Dispatch.dispatchDynamicSet(className, obj, propName, javaValue) ? 1 : 0;
+		}
+
 		return 0;
 	}
 
@@ -324,6 +329,9 @@ public final class InstanceCallbacks {
 
 		// Use Dispatch for typed property access — zero reflection
 		Object value = Dispatch.getProperty(className, propName, obj);
+		if (value == null && Dispatch.hasDynamicGetter(className)) {
+			value = Dispatch.dispatchDynamicGet(className, obj, propName);
+		}
 		if (value == null)
 			return 0;
 
@@ -515,6 +523,22 @@ public final class InstanceCallbacks {
 		}
 
 		PropertyMeta[] exports = Dispatch.getExports(className);
+
+		// Merge dynamic property list entries if available
+		if (Dispatch.hasDynamicPropertyList(className)) {
+			Object dynamicResult = Dispatch.dispatchDynamicPropertyList(className, obj);
+			if (dynamicResult instanceof PropertyMeta[] dynProps && dynProps.length > 0) {
+				if (exports == null || exports.length == 0) {
+					exports = dynProps;
+				} else {
+					PropertyMeta[] merged = new PropertyMeta[exports.length + dynProps.length];
+					System.arraycopy(exports, 0, merged, 0, exports.length);
+					System.arraycopy(dynProps, 0, merged, exports.length, dynProps.length);
+					exports = merged;
+				}
+			}
+		}
+
 		if (exports == null || exports.length == 0) {
 			writeInt(countPtr, 0);
 			return 0;
@@ -845,9 +869,12 @@ public final class InstanceCallbacks {
 		// Check if class has exported properties via Dispatch
 		PropertyMeta[] exports = Dispatch.getExports(godotClassName);
 		boolean hasProperties = exports != null && exports.length > 0;
+		boolean hasDynamicProps = Dispatch.hasDynamicGetter(godotClassName)
+				|| Dispatch.hasDynamicSetter(godotClassName);
 
-		// set_func / get_func — property access callbacks for @Export fields
-		if (hasProperties) {
+		// set_func / get_func — property access callbacks for @Export fields and
+		// dynamic properties
+		if (hasProperties || hasDynamicProps) {
 			FunctionDescriptor propFd = FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, ADDRESS);
 
 			MethodHandle setHandle = findStatic("setPropertyAdapter",
@@ -918,7 +945,8 @@ public final class InstanceCallbacks {
 					MemorySegment.ofAddress(unrefStub.address()));
 		}
 
-		if (hasProperties) {
+		boolean hasDynamicPropertyList = Dispatch.hasDynamicPropertyList(godotClassName);
+		if (hasProperties || hasDynamicPropertyList) {
 			// get_property_list_func / free_property_list_func
 			FunctionDescriptor getPropListFd = FunctionDescriptor.of(ADDRESS, ADDRESS, ADDRESS);
 			FunctionDescriptor freePropListFd = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT);
