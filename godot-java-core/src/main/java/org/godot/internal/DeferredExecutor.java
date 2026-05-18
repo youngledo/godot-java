@@ -49,6 +49,7 @@ public final class DeferredExecutor {
 			}
 			count++;
 		}
+		count += org.godot.coroutine.GodotScope.flush();
 		return count;
 	}
 

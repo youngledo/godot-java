@@ -1795,6 +1795,20 @@ public abstract class Godot {
 		}
 	}
 
+	/// Launch a Virtual Thread coroutine that can suspend on signals and delays.
+	/// Resumes happen on the main thread during frame processing.
+	///
+	/// Example:
+	/// ```java
+	/// Godot.launch(() -> {
+	///     GodotScope.delay(2.0);
+	///     emitSignal("timeout");
+	/// });
+	/// ```
+	public static void launch(Runnable coroutine) {
+		org.godot.coroutine.GodotScope.launch(coroutine);
+	}
+
 	public void onFreed() {
 	}
 
