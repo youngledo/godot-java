@@ -1172,8 +1172,12 @@ public class GodotClassProcessor extends AbstractProcessor {
 				String classSimpleName = getClassSimpleName(e.getKey());
 				for (FieldInfo f : e.getValue()) {
 					String safeName = sanitize(e.getKey()) + "_" + sanitize(f.javaName());
-					w.write("            VH_" + safeName + " = lookup.findVarHandle(" + classSimpleName + ".class, \""
-							+ f.javaName() + "\", " + javaTypeForVarHandle(f.type()) + ");\n");
+					// Skip VarHandle for fields with custom getter/setter — use MethodHandle
+					// instead
+					if (f.getter().isEmpty() && f.setter().isEmpty()) {
+						w.write("            VH_" + safeName + " = lookup.findVarHandle(" + classSimpleName
+								+ ".class, \"" + f.javaName() + "\", " + javaTypeForVarHandle(f.type()) + ");\n");
+					}
 				}
 			}
 			for (Map.Entry<String, List<FieldInfo>> e : classFields.entrySet()) {
