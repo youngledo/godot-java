@@ -98,6 +98,7 @@ Bootstrap.init() → Bridge.load() → Scanner.scan() → Registry.registerUserC
 - Code comments in English only.
 - No `Co-Authored-By` in commits.
 - Do not push to remote unless explicitly asked.
+- **Pushing and releasing MUST use the `push-and-release` skill** — invoke via `Skill` tool when user says "推送代码" (push) or "发布版本" (release). Follow every step exactly, never manually improvise around the skill.
 - See [CONTRIBUTING.md](CONTRIBUTING.md) for full architecture constraints and style rules.
 
 ## Spotless
