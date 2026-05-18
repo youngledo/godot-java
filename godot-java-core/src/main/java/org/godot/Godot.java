@@ -1809,6 +1809,28 @@ public abstract class Godot {
 		org.godot.coroutine.GodotScope.launch(coroutine);
 	}
 
+	/// Safe downcast utility. Returns the object cast to the target type if it
+	/// is an instance, or `null` otherwise.
+	///
+	/// Equivalent of gdext's `match_class!` for simple downcasting.
+	/// For exhaustive pattern matching, use `if (obj instanceof Type t)` chains.
+	///
+	/// Example:
+	/// ```java
+	/// Node child = getChild(0);
+	/// Node2D node2d = Godot.as(child, Node2D.class);
+	/// if (node2d != null) {
+	///     node2d.setPosition(new Vector2(100, 200));
+	/// }
+	/// ```
+	public static <T extends Godot> T as(Godot obj, Class<T> type) {
+		if (obj == null || !obj.isValid())
+			return null;
+		if (type.isInstance(obj))
+			return type.cast(obj);
+		return null;
+	}
+
 	public void onFreed() {
 	}
 
