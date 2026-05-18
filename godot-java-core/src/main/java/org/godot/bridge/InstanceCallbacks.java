@@ -677,6 +677,21 @@ public final class InstanceCallbacks {
 		if (found == null)
 			return 0;
 
+		// Check for explicit default value from @Export(defaultValue=...)
+		String explicitDefault = Dispatch.getExportDefaultValue(className, propName);
+		if (explicitDefault != null && !explicitDefault.isEmpty()) {
+			try {
+				Object parsed = parseDefaultValue(found.typeName(), explicitDefault);
+				if (parsed != null) {
+					VariantUtils.writeVariantFromObject(MemorySegment.ofAddress(retPtr).reinterpret(Variant.SIZE),
+							parsed);
+					return 1;
+				}
+			} catch (Exception e) {
+				// Fall through to fresh-instance approach
+			}
+		}
+
 		try {
 			// Create a fresh instance to read the default field value
 			Godot fresh = Dispatch.createInstance(className, 0);
@@ -696,6 +711,19 @@ public final class InstanceCallbacks {
 			logger.trace("propertyGetRevertFunc failed for {}.{}: {}", className, propName, e.getMessage());
 			return 0;
 		}
+	}
+
+	/// Parse a string default value based on property type.
+	private static Object parseDefaultValue(String type, String value) {
+		return switch (type) {
+			case "int" -> Integer.parseInt(value);
+			case "long" -> Long.parseLong(value);
+			case "float" -> Float.parseFloat(value);
+			case "double" -> Double.parseDouble(value);
+			case "boolean" -> Boolean.parseBoolean(value);
+			case "java.lang.String" -> value;
+			default -> null; // Unsupported type, fall through to fresh-instance
+		};
 	}
 
 	private static int propertyGetRevertAdapter(MemorySegment instanceSeg, MemorySegment nameSeg,

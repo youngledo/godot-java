@@ -89,4 +89,7 @@ public interface DispatchAccessor {
 
 	/// Initialize @OnReady fields for the given class before _ready().
 	void initOnReadyFields(String godotClassName, Godot instance);
+
+	/// Returns the explicit default value string for an exported property, or null if none.
+	String getExportDefaultValue(String godotClassName, String propertyName);
 }

@@ -173,6 +173,10 @@ public final class Dispatch {
 		accessor.initOnReadyFields(className, instance);
 	}
 
+	public static String getExportDefaultValue(String className, String propertyName) {
+		return accessor.getExportDefaultValue(className, propertyName);
+	}
+
 	private Dispatch() {
 	}
 
@@ -354,6 +358,11 @@ public final class Dispatch {
 
 		@Override
 		public void initOnReadyFields(String c, Godot i) {
+		}
+
+		@Override
+		public String getExportDefaultValue(String c, String p) {
+			return null;
 		}
 	}
 }

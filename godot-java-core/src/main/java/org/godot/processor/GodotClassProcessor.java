@@ -184,7 +184,7 @@ public class GodotClassProcessor extends AbstractProcessor {
 
 	private record FieldInfo(String javaName, String propertyName, String type, int hintId, String hintString,
 			int usage, String group, String groupHint, String subgroup, String subgroupHint, String getter,
-			String setter, boolean readOnly) {
+			String setter, boolean readOnly, String defaultValue) {
 	}
 
 	private record SignalInfo(String javaName, String signalName, List<String> paramTypes, List<String> paramNames) {
@@ -338,9 +338,10 @@ public class GodotClassProcessor extends AbstractProcessor {
 						usage = org.godot.annotation.PropertyUsage.EDITOR_READ_ONLY.value;
 						setter = "";
 					}
+					String defaultValue = ann != null ? ann.defaultValue() : "";
 					fields.add(new FieldInfo(field.getSimpleName().toString(), propName,
 							typeToDescriptor(field.asType()), hintId, hintString, usage, currentGroup, currentGroupHint,
-							currentSubgroup, currentSubgroupHint, getter, setter, readOnly));
+							currentSubgroup, currentSubgroupHint, getter, setter, readOnly, defaultValue));
 				}
 				// Collect @OnReady fields
 				if (field.getAnnotation(org.godot.annotation.OnReady.class) != null) {
@@ -898,6 +899,50 @@ public class GodotClassProcessor extends AbstractProcessor {
 		w.write("    public PropertyMeta[] getExports(String name) {\n");
 		w.write("        return _EXPORTS.getOrDefault(name, _EMPTY_PROPS);\n");
 		w.write("    }\n\n");
+		// --- EXPORT_DEFAULTS map ---
+		boolean hasAnyExportDefaults = false;
+		for (var e : classFields.entrySet()) {
+			for (FieldInfo fi : e.getValue()) {
+				if (fi.defaultValue() != null && !fi.defaultValue().isEmpty()) {
+					hasAnyExportDefaults = true;
+					break;
+				}
+			}
+			if (hasAnyExportDefaults)
+				break;
+		}
+		if (hasAnyExportDefaults) {
+			w.write("    private static final Map<String, Map<String, String>> _EXPORT_DEFAULTS;\n");
+			w.write("    static {\n");
+			w.write("        var m = new HashMap<String, Map<String, String>>();\n");
+			for (Map.Entry<String, List<FieldInfo>> e : classFields.entrySet()) {
+				boolean hasDefaults = false;
+				for (FieldInfo fi : e.getValue()) {
+					if (fi.defaultValue() != null && !fi.defaultValue().isEmpty()) {
+						hasDefaults = true;
+						break;
+					}
+				}
+				if (!hasDefaults)
+					continue;
+				w.write("        { var dm = new HashMap<String, String>();\n");
+				for (FieldInfo fi : e.getValue()) {
+					if (fi.defaultValue() != null && !fi.defaultValue().isEmpty()) {
+						w.write("        dm.put(\"" + escapeJava(fi.propertyName()) + "\", \""
+								+ escapeJava(fi.defaultValue()) + "\");\n");
+					}
+				}
+				w.write("        m.put(\"" + e.getKey() + "\", Collections.unmodifiableMap(dm)); }\n");
+			}
+			w.write("        _EXPORT_DEFAULTS = Collections.unmodifiableMap(m);\n");
+			w.write("    }\n");
+			w.write("    public String getExportDefaultValue(String godotClassName, String propertyName) {\n");
+			w.write("        Map<String, String> defaults = _EXPORT_DEFAULTS.get(godotClassName);\n");
+			w.write("        return defaults != null ? defaults.get(propertyName) : null;\n");
+			w.write("    }\n\n");
+		} else {
+			w.write("    public String getExportDefaultValue(String godotClassName, String propertyName) { return null; }\n\n");
+		}
 
 		// --- METHODS map ---
 		w.write("    private static final Map<String, MethodMeta[]> _METHODS;\n");

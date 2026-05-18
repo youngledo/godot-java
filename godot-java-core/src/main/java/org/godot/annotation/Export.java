@@ -53,4 +53,10 @@ public @interface Export {
 	 * {@code usage = PropertyUsage.EDITOR_READ_ONLY}. Implies no setter.
 	 */
 	boolean readOnly() default false;
+
+	/// Default value for property revert in the editor.
+	/// Used by the Inspector's "Revert" button. Must be a string representation
+	/// of the default value. Empty string means no explicit revert value
+	/// (falls back to fresh instance defaults).
+	String defaultValue() default "";
 }
