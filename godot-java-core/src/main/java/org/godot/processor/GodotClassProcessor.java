@@ -1170,27 +1170,29 @@ public class GodotClassProcessor extends AbstractProcessor {
 			w.write("            var lookup = MethodHandles.lookup();\n");
 			for (Map.Entry<String, List<FieldInfo>> e : classFields.entrySet()) {
 				String classSimpleName = getClassSimpleName(e.getKey());
+				String lookupVar = "lookup_" + sanitize(e.getKey());
+				w.write("            var " + lookupVar + " = MethodHandles.privateLookupIn(" + classSimpleName
+						+ ".class, lookup);\n");
 				for (FieldInfo f : e.getValue()) {
 					String safeName = sanitize(e.getKey()) + "_" + sanitize(f.javaName());
-					// Skip VarHandle for fields with custom getter/setter — use MethodHandle
-					// instead
 					if (f.getter().isEmpty() && f.setter().isEmpty()) {
-						w.write("            VH_" + safeName + " = lookup.findVarHandle(" + classSimpleName
+						w.write("            VH_" + safeName + " = " + lookupVar + ".findVarHandle(" + classSimpleName
 								+ ".class, \"" + f.javaName() + "\", " + javaTypeForVarHandle(f.type()) + ");\n");
 					}
 				}
 			}
 			for (Map.Entry<String, List<FieldInfo>> e : classFields.entrySet()) {
 				String classSimpleName = getClassSimpleName(e.getKey());
+				String lookupVar = "lookup_" + sanitize(e.getKey());
 				for (FieldInfo f : e.getValue()) {
 					String safeName = sanitize(e.getKey()) + "_" + sanitize(f.javaName());
 					if (!f.getter().isEmpty()) {
-						w.write("            MH_GET_" + safeName + " = lookup.findVirtual(" + classSimpleName
+						w.write("            MH_GET_" + safeName + " = " + lookupVar + ".findVirtual(" + classSimpleName
 								+ ".class, \"" + f.getter() + "\", MethodType.methodType("
 								+ javaTypeForMethodHandle(f.type()) + "));\n");
 					}
 					if (!f.setter().isEmpty()) {
-						w.write("            MH_SET_" + safeName + " = lookup.findVirtual(" + classSimpleName
+						w.write("            MH_SET_" + safeName + " = " + lookupVar + ".findVirtual(" + classSimpleName
 								+ ".class, \"" + f.setter() + "\", MethodType.methodType(void.class, "
 								+ javaTypeForMethodHandle(f.type()) + "));\n");
 					}
