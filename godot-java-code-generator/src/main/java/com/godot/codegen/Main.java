@@ -16,6 +16,8 @@ import java.util.*;
  * <p>
  * Usage:
  * {@code java -jar code-generator.jar <extension_api.json> <gdextension_interface.json> <output-dir> [--force]}
+ * Alternatively, set {@code -Dcodegen.force=true} or activate the
+ * {@code force-codegen} Maven profile.
  *
  * <p>
  * Generates ALL engine API classes from extension_api.json, including: - All
@@ -37,7 +39,7 @@ public class Main {
 		String apiPath = args.length > 0 ? args[0] : DEFAULT_API_PATH;
 		String interfacePath = args.length > 1 ? args[1] : DEFAULT_INTERFACE_PATH;
 		String outputDir = args.length > 2 ? args[2] : DEFAULT_OUTPUT_DIR;
-		boolean force = Arrays.asList(args).contains("--force");
+		boolean force = Arrays.asList(args).contains("--force") || Boolean.getBoolean("codegen.force");
 
 		System.out.println("Godot Java Code Generator");
 		System.out.println("=========================");

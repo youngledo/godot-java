@@ -57,6 +57,11 @@
         <exec-maven-plugin.version>3.5.0</exec-maven-plugin.version>
         <spotbugs-maven-plugin.version>4.9.8.3</spotbugs-maven-plugin.version>
         <spotless-maven-plugin.version>2.44.4</spotless-maven-plugin.version>
+
+        <!-- Feature flags (default off; activate via -P <profile-id>) -->
+        <godot.real.type></godot.real.type>
+        <godot.lazyApiLoad>false</godot.lazyApiLoad>
+        <codegen.force>false</codegen.force>
     </properties>
 
     <dependencyManagement>
@@ -208,12 +213,31 @@
     </build>
 
     <profiles>
+        <!-- Feature flag: use double-precision real_t (default is single-precision float) -->
         <profile>
             <id>double-precision</id>
             <properties>
                 <godot.real.type>double</godot.real.type>
             </properties>
         </profile>
+
+        <!-- Feature flag: resolve API function handles on first use instead of eagerly at startup -->
+        <profile>
+            <id>lazy-api-load</id>
+            <properties>
+                <godot.lazyApiLoad>true</godot.lazyApiLoad>
+            </properties>
+        </profile>
+
+        <!-- Feature flag: force code regeneration, ignoring up-to-date checks -->
+        <profile>
+            <id>force-codegen</id>
+            <properties>
+                <codegen.force>true</codegen.force>
+            </properties>
+        </profile>
+
+        <!-- Release: sign artifacts and publish to Maven Central -->
         <profile>
             <id>release</id>
             <properties>

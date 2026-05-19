@@ -71,6 +71,10 @@
                                     <key>godot.real.type</key>
                                     <value>${godot.real.type}</value>
                                 </systemProperty>
+                                <systemProperty>
+                                    <key>codegen.force</key>
+                                    <value>${codegen.force}</value>
+                                </systemProperty>
                             </systemProperties>
                             <arguments>
                                 <argument>${godot.api.json}</argument>
@@ -109,6 +113,9 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
                     <argLine>--enable-native-access=ALL-UNNAMED</argLine>
+                    <systemPropertyVariables>
+                        <godot.lazyApiLoad>${godot.lazyApiLoad}</godot.lazyApiLoad>
+                    </systemPropertyVariables>
                     <environmentVariables>
                         <GODOT_BIN>${env.GODOT_BIN}</GODOT_BIN>
                         <GODOT_JAVA_CLASSPATH>${env.GODOT_JAVA_CLASSPATH}</GODOT_JAVA_CLASSPATH>
