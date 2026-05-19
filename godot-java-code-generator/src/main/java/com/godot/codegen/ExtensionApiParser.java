@@ -95,6 +95,10 @@ public class ExtensionApiParser {
 		return result;
 	}
 
+	public boolean isDoublePrecision() {
+		return api.header() != null && "double".equals(api.header().precision());
+	}
+
 	public List<String> getSingletons() {
 		if (api.singletons() == null)
 			return List.of();
@@ -141,7 +145,7 @@ public class ExtensionApiParser {
 	}
 
 	public record Header(int version_major, int version_minor, int version_patch, String version_status,
-			String version_build, String version_full_name) {
+			String version_build, String version_full_name, String precision) {
 	}
 
 	public record SingletonEntry(String name, String type) {

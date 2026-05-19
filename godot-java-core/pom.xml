@@ -15,6 +15,7 @@
         <godot.interface.json>${project.basedir}/../godot-api/gdextension_interface.json</godot.interface.json>
         <method.hashes>${project.basedir}/src/main/resources/method_hashes.txt</method.hashes>
         <class.hierarchy>${project.basedir}/src/main/resources/class_hierarchy.txt</class.hierarchy>
+        <godot.real.type></godot.real.type>
     </properties>
 
     <dependencies>
@@ -65,6 +66,12 @@
                         </goals>
                         <configuration>
                             <mainClass>com.godot.codegen.Main</mainClass>
+                            <systemProperties>
+                                <systemProperty>
+                                    <key>godot.real.type</key>
+                                    <value>${godot.real.type}</value>
+                                </systemProperty>
+                            </systemProperties>
                             <arguments>
                                 <argument>${godot.api.json}</argument>
                                 <argument>${godot.interface.json}</argument>

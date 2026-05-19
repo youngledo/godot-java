@@ -58,6 +58,17 @@ public class Main {
 		// ---------------------------------------------------------------
 		System.out.println("Parsing extension_api.json...");
 		ExtensionApiParser parser = new ExtensionApiParser(apiPath);
+
+		// Detect real_t precision from API header and/or system property.
+		// The system property -Dgodot.real.type takes precedence; otherwise
+		// we read it from extension_api.json's "precision" field.
+		String realTypeProp = System.getProperty("godot.real.type");
+		if ((realTypeProp == null || realTypeProp.isEmpty()) && parser.isDoublePrecision()) {
+			System.setProperty("godot.real.type", "double");
+		}
+		String precision = "double".equals(System.getProperty("godot.real.type")) ? "double" : "single";
+		System.out.println("Precision:    " + precision + " (real_t = " + TypeMapper.realType() + ")");
+
 		List<ClassInfo> classes = parser.getClasses();
 		List<SingletonEntry> singletons = parser.getSingletonEntries();
 		System.out.println("Found " + classes.size() + " classes, " + singletons.size() + " singletons");

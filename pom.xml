@@ -209,6 +209,12 @@
 
     <profiles>
         <profile>
+            <id>double-precision</id>
+            <properties>
+                <godot.real.type>double</godot.real.type>
+            </properties>
+        </profile>
+        <profile>
             <id>release</id>
             <properties>
                 <gpg.skip>false</gpg.skip>

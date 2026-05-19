@@ -36,12 +36,35 @@ public class BuiltinMethodGenerator {
 			Map.entry("Vector4i", 13), Map.entry("Plane", 14), Map.entry("Quaternion", 15), Map.entry("AABB", 16),
 			Map.entry("Basis", 17), Map.entry("Transform3D", 18), Map.entry("Color", 20));
 
-	private static final Map<String, Integer> TYPE_SIZES = Map.ofEntries(Map.entry("String", 16),
-			Map.entry("Vector2", 16), Map.entry("Vector2i", 8), Map.entry("Vector3", 24), Map.entry("Vector3i", 12),
-			Map.entry("Vector4", 32), Map.entry("Vector4i", 16), Map.entry("Rect2", 32), Map.entry("Rect2i", 16),
-			Map.entry("Transform2D", 48), Map.entry("Plane", 32), Map.entry("Quaternion", 32), Map.entry("AABB", 48),
-			Map.entry("Basis", 72), Map.entry("Transform3D", 96), Map.entry("Color", 16), Map.entry("bool", 1),
-			Map.entry("int", 8), Map.entry("float", 8), Map.entry("double", 8));
+	private static final Map<String, Integer> TYPE_SIZES = createTypeSizes();
+
+	private static Map<String, Integer> createTypeSizes() {
+		// real_t size depends on precision: float (4) or double (8)
+		int r = TypeMapper.isDoublePrecision() ? 8 : 4;
+		Map<String, Integer> sizes = new HashMap<>();
+		sizes.put("String", 16);
+		// Math types: member count * real_t size
+		sizes.put("Vector2", 2 * r);
+		sizes.put("Vector2i", 8);
+		sizes.put("Vector3", 3 * r);
+		sizes.put("Vector3i", 12);
+		sizes.put("Vector4", 4 * r);
+		sizes.put("Vector4i", 16);
+		sizes.put("Rect2", 2 * 2 * r); // 2 * Vector2
+		sizes.put("Rect2i", 16);
+		sizes.put("Transform2D", 3 * 2 * r); // 3 * Vector2
+		sizes.put("Plane", 4 * r);
+		sizes.put("Quaternion", 4 * r);
+		sizes.put("AABB", 2 * 3 * r); // 2 * Vector3
+		sizes.put("Basis", 3 * 3 * r); // 3 * Vector3
+		sizes.put("Transform3D", 3 * 3 * r + 3 * r); // Basis + Vector3
+		sizes.put("Color", 4 * r);
+		sizes.put("bool", 1);
+		sizes.put("int", 8);
+		sizes.put("float", r); // Godot real_t
+		sizes.put("double", 8);
+		return Map.copyOf(sizes);
+	}
 
 	public static void generate(List<BuiltinClassInfo> builtinClasses, String outputDir) throws IOException {
 		for (BuiltinClassInfo bc : builtinClasses) {

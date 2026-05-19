@@ -8,6 +8,36 @@ import java.util.Map;
  */
 public class TypeMapper {
 
+	// real_t precision: Godot compiles with either single (float) or double
+	// precision.
+	// Can be overridden via -Dgodot.real.type=double system property.
+	private static final boolean DOUBLE_PRECISION = "double".equals(System.getProperty("godot.real.type"));
+
+	/**
+	 * Returns the Java type for Godot's real_t.
+	 *
+	 * <p>
+	 * In single precision: "float" (4 bytes). In double precision: "double" (8
+	 * bytes).
+	 */
+	static String realType() {
+		return DOUBLE_PRECISION ? "double" : "float";
+	}
+
+	/**
+	 * Returns the boxed Java type for Godot's real_t.
+	 */
+	static String realWrapper() {
+		return DOUBLE_PRECISION ? "Double" : "Float";
+	}
+
+	/**
+	 * Returns true if double precision is active.
+	 */
+	static boolean isDoublePrecision() {
+		return DOUBLE_PRECISION;
+	}
+
 	private static final Map<String, String> TYPE_MAP = new HashMap<>();
 
 	static {
@@ -15,7 +45,7 @@ public class TypeMapper {
 		TYPE_MAP.put("void", "void");
 		TYPE_MAP.put("bool", "boolean");
 		TYPE_MAP.put("int", "long");
-		TYPE_MAP.put("float", "double");
+		TYPE_MAP.put("float", realType());
 		TYPE_MAP.put("String", "String");
 		TYPE_MAP.put("StringName", "String");
 		TYPE_MAP.put("NodePath", "String");
