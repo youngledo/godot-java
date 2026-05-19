@@ -431,6 +431,86 @@ public final class VariantUtils {
 		return variant.asString();
 	}
 
+	/// Converts a Variant to a Java object with relaxed type coercion matching
+	/// GDScript behavior. Unlike toObject(), this performs implicit conversions:
+	/// - Number -> int, long, float, double (widening)
+	/// - String -> int, long, float, double, boolean (parsed)
+	/// - bool -> int (0 or 1)
+	/// - nil -> null
+	/// @param variant the variant to convert
+	/// @param targetType the desired Java type
+	/// @return the converted value, or null if variant is nil or coercion fails
+	public static Object toObjectRelaxed(Variant variant, Class<?> targetType) {
+		if (variant == null)
+			return null;
+		Object raw = toObject(variant);
+		if (raw == null)
+			return null;
+		if (targetType.isInstance(raw))
+			return raw;
+
+		// Numeric coercion
+		if (targetType == int.class || targetType == Integer.class) {
+			if (raw instanceof Number n)
+				return n.intValue();
+			if (raw instanceof String s) {
+				try {
+					return Integer.parseInt(s.trim());
+				} catch (NumberFormatException e) {
+					return null;
+				}
+			}
+		}
+		if (targetType == long.class || targetType == Long.class) {
+			if (raw instanceof Number n)
+				return n.longValue();
+			if (raw instanceof String s) {
+				try {
+					return Long.parseLong(s.trim());
+				} catch (NumberFormatException e) {
+					return null;
+				}
+			}
+		}
+		if (targetType == float.class || targetType == Float.class) {
+			if (raw instanceof Number n)
+				return n.floatValue();
+			if (raw instanceof String s) {
+				try {
+					return Float.parseFloat(s.trim());
+				} catch (NumberFormatException e) {
+					return null;
+				}
+			}
+		}
+		if (targetType == double.class || targetType == Double.class) {
+			if (raw instanceof Number n)
+				return n.doubleValue();
+			if (raw instanceof String s) {
+				try {
+					return Double.parseDouble(s.trim());
+				} catch (NumberFormatException e) {
+					return null;
+				}
+			}
+		}
+		if (targetType == boolean.class || targetType == Boolean.class) {
+			if (raw instanceof Number n)
+				return n.doubleValue() != 0;
+			if (raw instanceof String s) {
+				if ("true".equalsIgnoreCase(s) || "1".equals(s))
+					return true;
+				if ("false".equalsIgnoreCase(s) || "0".equals(s))
+					return false;
+			}
+		}
+		if (targetType == String.class) {
+			return raw.toString();
+		}
+
+		return raw;
+	}
+
 	// ------------------------------------------------------------------------
 	// Read methods (Variant → Java objects)
 	// ------------------------------------------------------------------------
