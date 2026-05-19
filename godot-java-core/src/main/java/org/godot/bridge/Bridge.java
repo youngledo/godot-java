@@ -34,6 +34,15 @@ public final class Bridge {
 	// State
 	// ------------------------------------------------------------------------
 
+	/**
+	 * When true, API function handles are resolved on first use instead of eagerly
+	 * at startup. Controlled via {@code -Dgodot.lazyApiLoad=true}.
+	 */
+	private static final boolean LAZY_LOAD = Boolean.getBoolean("godot.lazyApiLoad");
+
+	/** C function names for lazy resolution, indexed by ApiIndex ordinal. */
+	private static final String[] API_NAMES = new String[ApiIndex.values().length];
+
 	/** All 176 API function handles, indexed by ApiIndex ordinal. */
 	private static final MethodHandle[] API = new MethodHandle[ApiIndex.values().length];
 
@@ -155,8 +164,16 @@ public final class Bridge {
 	public static void load(long getProcAddressPtr, long libraryPtr) throws Throwable {
 		LIBRARY_PTR = libraryPtr;
 		// get_proc_address is resolved via JNI in Bootstrap.getProcAddressImpl()
-		for (ApiIndex api : ApiIndex.values()) {
-			API[api.index()] = loadApi(api);
+		if (LAZY_LOAD) {
+			// Store function names for on-demand resolution
+			for (ApiIndex api : ApiIndex.values()) {
+				API_NAMES[api.index()] = toSnakeCase(api.name());
+			}
+		} else {
+			// Eager: resolve all MethodHandles upfront
+			for (ApiIndex api : ApiIndex.values()) {
+				API[api.index()] = loadApi(api);
+			}
 		}
 	}
 
@@ -227,15 +244,52 @@ public final class Bridge {
 	}
 
 	/**
-	 * Get a cached MethodHandle, throwing if the API is not available.
+	 * Get a cached MethodHandle, resolving lazily if needed. Throws if the API is
+	 * not available.
 	 */
 	private static MethodHandle requireApi(ApiIndex api) {
 		MethodHandle handle = API[api.index()];
 		if (handle == null) {
-			throw new org.godot.exception.GodotApiException(api.name(),
-					"API function not loaded (index=" + api.index() + ")");
+			if (LAZY_LOAD) {
+				handle = resolveLazy(api);
+			} else {
+				throw new org.godot.exception.GodotApiException(api.name(),
+						"API function not loaded (index=" + api.index() + ")");
+			}
 		}
 		return handle;
+	}
+
+	/**
+	 * Lazily resolve an API function on first use. Uses double-checked locking on
+	 * the API array slot.
+	 */
+	private static MethodHandle resolveLazy(ApiIndex api) {
+		int index = api.index();
+		MethodHandle mh = API[index];
+		if (mh != null) {
+			return mh;
+		}
+		synchronized (API) {
+			mh = API[index];
+			if (mh == null) {
+				String cName = API_NAMES[index];
+				long addr = org.godot.bootstrap.Bootstrap.getProcAddressImpl(cName);
+				if (addr == 0) {
+					throw new org.godot.exception.GodotApiException(api.name(),
+							"Failed to resolve lazy function: " + cName);
+				}
+				try {
+					FunctionDescriptor fd = ApiSignatures.get(api);
+					mh = LINKER.downcallHandle(MemorySegment.ofAddress(addr), fd);
+				} catch (Throwable t) {
+					throw new org.godot.exception.GodotApiException(api.name(),
+							"Failed to create MethodHandle for lazy function: " + cName, t);
+				}
+				API[index] = mh;
+			}
+		}
+		return mh;
 	}
 
 	// ------------------------------------------------------------------------
