@@ -177,6 +177,10 @@ public final class Dispatch {
 		return accessor.getExportDefaultValue(className, propertyName);
 	}
 
+	public static boolean isEditorPluginClass(String className) {
+		return accessor.isEditorPluginClass(className);
+	}
+
 	private Dispatch() {
 	}
 
@@ -363,6 +367,11 @@ public final class Dispatch {
 		@Override
 		public String getExportDefaultValue(String c, String p) {
 			return null;
+		}
+
+		@Override
+		public boolean isEditorPluginClass(String c) {
+			return false;
 		}
 	}
 }

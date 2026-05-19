@@ -92,4 +92,6 @@ public interface DispatchAccessor {
 
 	/// Returns the explicit default value string for an exported property, or null if none.
 	String getExportDefaultValue(String godotClassName, String propertyName);
+
+	boolean isEditorPluginClass(String godotClassName);
 }

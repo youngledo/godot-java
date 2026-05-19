@@ -144,6 +144,11 @@ public final class Registry {
 			registerSingleton(className);
 		}
 
+		// Register editor plugin if annotated
+		if (Dispatch.isEditorPluginClass(className)) {
+			registerEditorPlugin(className);
+		}
+
 		registeredClassNames.add(className);
 
 		return stats;
@@ -205,6 +210,19 @@ public final class Registry {
 		} catch (Exception e) {
 			logger.error("Failed to register singleton {}: {}", className, e.getMessage());
 		}
+	}
+
+	/**
+	 * Register an editor plugin class. The class must extend EditorPlugin in
+	 * Godot's class hierarchy. This is a placeholder — full editor plugin lifecycle
+	 * management will be added in a future release.
+	 */
+	private static void registerEditorPlugin(String className) {
+		// Editor plugins are only relevant in the editor, not in exported games
+		if (!org.godot.singleton.Engine.singleton().isEditorHint()) {
+			return;
+		}
+		logger.info("Registered editor plugin: {}", className);
 	}
 
 	/**

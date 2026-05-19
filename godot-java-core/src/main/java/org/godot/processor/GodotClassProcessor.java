@@ -47,7 +47,7 @@ import java.util.StringJoiner;
 		"org.godot.annotation.GodotMethod", "org.godot.annotation.Export", "org.godot.annotation.Signal",
 		"org.godot.annotation.Rpc", "org.godot.annotation.Tool", "org.godot.annotation.Constant",
 		"org.godot.annotation.GetProperty", "org.godot.annotation.SetProperty", "org.godot.annotation.GetPropertyList",
-		"org.godot.annotation.ValidateProperty", "org.godot.annotation.OnReady"})
+		"org.godot.annotation.ValidateProperty", "org.godot.annotation.OnReady", "org.godot.annotation.EditorPlugin"})
 @javax.annotation.processing.SupportedSourceVersion(SourceVersion.RELEASE_25)
 public class GodotClassProcessor extends AbstractProcessor {
 
@@ -86,12 +86,14 @@ public class GodotClassProcessor extends AbstractProcessor {
 							boolean isSingleton = anno.singleton();
 							boolean isInternal = anno.internal();
 							boolean noInit = anno.noInit();
+							boolean isEditorPlugin = typeElement
+									.getAnnotation(org.godot.annotation.EditorPlugin.class) != null;
 							discoveredClasses.add(new ClassEntry(fqn, anno.name(), anno.parent(), isTool, isSingleton,
-									isInternal, noInit));
+									isInternal, noInit, isEditorPlugin));
 						}
 					} catch (Exception e) {
 						discoveredClasses.add(new ClassEntry(fqn, typeElement.getSimpleName().toString(), "RefCounted",
-								false, false, false, false));
+								false, false, false, false, false));
 					}
 				}
 			}
@@ -175,7 +177,7 @@ public class GodotClassProcessor extends AbstractProcessor {
 	// -----------------------------------------------------------------------
 
 	private record ClassEntry(String fqn, String godotClassName, String parentClass, boolean isTool,
-			boolean isSingleton, boolean isInternal, boolean noInit) {
+			boolean isSingleton, boolean isInternal, boolean noInit, boolean isEditorPlugin) {
 	}
 
 	private record MethodInfo(String javaName, String godotName, String returnType, List<String> paramTypes,
@@ -1137,6 +1139,19 @@ public class GodotClassProcessor extends AbstractProcessor {
 		w.write("        _NO_INIT_CLASSES = Collections.unmodifiableSet(s);\n");
 		w.write("    }\n");
 		w.write("    public boolean isNoInitClass(String name) { return _NO_INIT_CLASSES.contains(name); }\n\n");
+
+		// --- EDITOR_PLUGIN_CLASSES set ---
+		w.write("    private static final Set<String> _EDITOR_PLUGIN_CLASSES;\n");
+		w.write("    static {\n");
+		w.write("        var s = new HashSet<String>();\n");
+		for (ClassEntry entry : discoveredClasses) {
+			if (entry.isEditorPlugin()) {
+				w.write("        s.add(\"" + entry.godotClassName() + "\");\n");
+			}
+		}
+		w.write("        _EDITOR_PLUGIN_CLASSES = Collections.unmodifiableSet(s);\n");
+		w.write("    }\n");
+		w.write("    public boolean isEditorPluginClass(String name) { return _EDITOR_PLUGIN_CLASSES.contains(name); }\n\n");
 
 		// --- CONSTANTS map ---
 		if (!classConstants.isEmpty()) {
