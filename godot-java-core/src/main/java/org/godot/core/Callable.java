@@ -14,7 +14,7 @@ import org.godot.internal.dispatch.Dispatch;
 /// 1. Java callable: wraps a (Godot object, method name) pair, invoked via dispatch.
 /// 2. Native callable: wraps a Godot Callable received from the engine, invoked via CALLABLE_CALL builtin method.
 public final class Callable {
-	static final long NATIVE_SIZE = 16;
+	public static final long NATIVE_SIZE = 16;
 
 	private static final int CALLABLE_TYPE_INDEX = 25;
 	private static final long CALL_HASH = 3643564216L;
@@ -43,6 +43,11 @@ public final class Callable {
 		this.methodName = "";
 		this.boundArgs = null;
 		this.nativeCallable = nativeCallable;
+	}
+
+	/// Wraps a NativeCallable for passing to Godot APIs like signal connect.
+	public Callable(NativeCallable nativeCallable) {
+		this(nativeCallable.getSegment());
 	}
 
 	public Godot getObject() {

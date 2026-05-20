@@ -31,7 +31,7 @@ import org.godot.internal.api.ApiIndex;
 public final class NativeCallable {
 
 	/** Size of GDExtensionCallableCustomInfo2 struct (96 bytes). */
-	private static final long INFO_SIZE = 96;
+	public static final long INFO_SIZE = 96;
 
 	/** Token pointer for identifying this GDExtension (library pointer). */
 	private static final long TOKEN = Bridge.libraryPtr();
@@ -112,7 +112,7 @@ public final class NativeCallable {
 		return new NativeCallable(callableSeg, key);
 	}
 
-	NativeCallable(MemorySegment segment, long dispatchKey) {
+	public NativeCallable(MemorySegment segment, long dispatchKey) {
 		this.segment = segment;
 		this.dispatchKey = dispatchKey;
 	}

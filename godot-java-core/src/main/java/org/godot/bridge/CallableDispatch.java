@@ -86,6 +86,17 @@ public final class CallableDispatch {
 	}
 
 	/**
+	 * Register a lambda callable that invokes the given runnable when called.
+	 * Returns the unique key for use as callable userdata.
+	 */
+	public static long registerLambdaCallable(Runnable action) {
+		ensureInitialized();
+		long key = nextKey++;
+		CALLABLES.put(key, new LambdaEntry(action));
+		return key;
+	}
+
+	/**
 	 * Unregister a callable (call when the NativeCallable is freed).
 	 */
 	public static void unregisterCallable(long key) {
@@ -127,6 +138,13 @@ public final class CallableDispatch {
 			if (entry == null) {
 				writeNilVariant(retSeg);
 				setError(errorSeg, 2);
+				return;
+			}
+
+			if (entry instanceof LambdaEntry lambdaEntry) {
+				lambdaEntry.action().run();
+				writeNilVariant(retSeg);
+				setError(errorSeg, 0);
 				return;
 			}
 
@@ -219,6 +237,19 @@ public final class CallableDispatch {
 
 		long objectPtr() {
 			return object.getPtr();
+		}
+	}
+
+	private static class LambdaEntry extends CallableEntry {
+		private final Runnable action;
+
+		LambdaEntry(Runnable action) {
+			super(null, "", null);
+			this.action = action;
+		}
+
+		Runnable action() {
+			return action;
 		}
 	}
 }

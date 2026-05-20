@@ -1,7 +1,18 @@
 package org.godot.coroutine;
 
+import org.godot.Godot;
+import org.godot.bridge.Bridge;
+import org.godot.bridge.CallableDispatch;
+import org.godot.core.Callable;
+import org.godot.core.NativeCallable;
+import org.godot.internal.api.ApiIndex;
+import org.godot.signal.ConnectFlags;
+import java.lang.foreign.MemorySegment;
+import java.time.Duration;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.locks.LockSupport;
+import static java.lang.foreign.ValueLayout.ADDRESS;
+import static java.lang.foreign.ValueLayout.JAVA_LONG;
 
 /// Virtual Thread scope integrated with Godot's single-threaded execution model.
 ///
@@ -27,6 +38,7 @@ public final class GodotScope {
 	/// for coroutine synchronization.
 	public static final class SignalHandle {
 		private volatile Thread waiter;
+		private volatile Object[] args;
 
 		/// Park the current thread until `fire()` is called.
 		public void await() {
@@ -34,13 +46,33 @@ public final class GodotScope {
 			LockSupport.park(this);
 		}
 
+		/// Park the current thread until `fire()` is called or the timeout elapses.
+		/// Returns the signal arguments if fired, or null if timed out.
+		public Object[] await(Duration timeout) {
+			waiter = Thread.currentThread();
+			LockSupport.parkNanos(timeout.toNanos());
+			waiter = null;
+			return args;
+		}
+
 		/// Wake the thread waiting on this signal.
 		public void fire() {
+			fire(new Object[0]);
+		}
+
+		/// Wake the thread waiting on this signal with arguments.
+		public void fire(Object... signalArgs) {
 			Thread w = waiter;
 			if (w != null) {
+				this.args = signalArgs;
 				RESUMABLE.add(w);
 				waiter = null;
 			}
+		}
+
+		/// Get the signal arguments from the last fire().
+		public Object[] args() {
+			return args;
 		}
 	}
 
@@ -70,6 +102,49 @@ public final class GodotScope {
 			RESUMABLE.add(current);
 		});
 		LockSupport.park();
+	}
+
+	/// Await a signal on a Godot object. Connects a one-shot native callable,
+	/// parks the current coroutine, and resumes when the signal fires.
+	/// Must be called from a coroutine launched via `launch()`.
+	public static void awaitSignal(Godot source, String signalName) {
+		SignalHandle handle = new SignalHandle();
+		NativeCallable nc = createSignalCallable(handle);
+		Callable callable = new Callable(nc);
+		source.connect(signalName, callable, ConnectFlags.ONE_SHOT);
+		handle.await();
+		nc.free();
+	}
+
+	/// Await a signal with a timeout. Disconnects on timeout.
+	/// Returns true if the signal fired, false if timed out.
+	public static boolean awaitSignal(Godot source, String signalName, Duration timeout) {
+		SignalHandle handle = new SignalHandle();
+		NativeCallable nc = createSignalCallable(handle);
+		Callable callable = new Callable(nc);
+		source.connect(signalName, callable, ConnectFlags.ONE_SHOT);
+		Object[] result = handle.await(timeout);
+		if (result == null) {
+			source.disconnect(signalName, callable);
+		}
+		nc.free();
+		return result != null;
+	}
+
+	/// Create a NativeCallable that fires a SignalHandle when invoked.
+	private static NativeCallable createSignalCallable(SignalHandle handle) {
+		long key = CallableDispatch.registerLambdaCallable(() -> handle.fire());
+		MemorySegment callableSeg = Bridge.allocate(Callable.NATIVE_SIZE);
+		MemorySegment infoSeg = Bridge.allocate(NativeCallable.INFO_SIZE);
+		infoSeg.set(ADDRESS, 0, MemorySegment.ofAddress(key));
+		infoSeg.set(ADDRESS, 8, MemorySegment.ofAddress(Bridge.libraryPtr()));
+		infoSeg.set(JAVA_LONG, 16, 0L);
+		infoSeg.set(ADDRESS, 24, CallableDispatch.getCallStub());
+		for (int off = 32; off < 88; off += 8) {
+			infoSeg.set(ADDRESS, off, MemorySegment.ofAddress(0));
+		}
+		Bridge.callVoid(ApiIndex.CALLABLE_CUSTOM_CREATE2, callableSeg, infoSeg);
+		return new NativeCallable(callableSeg, key);
 	}
 
 	/// Flush all resumable coroutines. Must be called on the main thread
