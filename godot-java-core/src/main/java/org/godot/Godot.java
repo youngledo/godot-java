@@ -523,6 +523,12 @@ public abstract class Godot implements VirtualStubs {
 				VariantType.PACKED_VECTOR3_ARRAY.id(), typedArgs));
 	}
 
+	protected double[][] callEnginePackedVector4Array(String className, String methodName, long hash,
+			Object... typedArgs) {
+		return vector4ArrayToDoubleArray((Vector4[]) callEngineTypedBuiltinObject(className, methodName, hash, 16,
+				VariantType.PACKED_VECTOR4_ARRAY.id(), typedArgs));
+	}
+
 	protected double[][] callEnginePackedColorArray(String className, String methodName, long hash,
 			Object... typedArgs) {
 		return colorArrayToDoubleArray((Color[]) callEngineTypedBuiltinObject(className, methodName, hash, 16,
@@ -760,6 +766,12 @@ public abstract class Godot implements VirtualStubs {
 				VariantType.PACKED_VECTOR3_ARRAY.id(), typedArgs));
 	}
 
+	protected static double[][] callStaticPackedVector4Array(String className, String methodName, long hash,
+			Object... typedArgs) {
+		return vector4ArrayToDoubleArray((Vector4[]) callStaticTypedBuiltinObject(className, methodName, hash, 16,
+				VariantType.PACKED_VECTOR4_ARRAY.id(), typedArgs));
+	}
+
 	protected static double[][] callStaticPackedColorArray(String className, String methodName, long hash,
 			Object... typedArgs) {
 		return colorArrayToDoubleArray((Color[]) callStaticTypedBuiltinObject(className, methodName, hash, 16,
@@ -945,6 +957,10 @@ public abstract class Godot implements VirtualStubs {
 
 	protected static Object typedPackedVector3ArrayArg(double[][] value) {
 		return new TypedPackedArrayArg(value, VariantType.PACKED_VECTOR3_ARRAY.id(), 16, 3295363524L);
+	}
+
+	protected static Object typedPackedVector4ArrayArg(double[][] value) {
+		return new TypedPackedArrayArg(value, VariantType.PACKED_VECTOR4_ARRAY.id(), 16, 3289167688L);
 	}
 
 	protected static Object typedPackedColorArrayArg(double[][] value) {
@@ -1185,6 +1201,10 @@ public abstract class Godot implements VirtualStubs {
 			requirePackedElementSize(value, 3, "PackedVector3Array");
 			return new Vector3(value[0], value[1], value[2]);
 		}
+		if (variantType == VariantType.PACKED_VECTOR4_ARRAY.id()) {
+			requirePackedElementSize(value, 4, "PackedVector4Array");
+			return new Vector4(value[0], value[1], value[2], value[3]);
+		}
 		if (variantType == VariantType.PACKED_COLOR_ARRAY.id()) {
 			requirePackedElementSize(value, 4, "PackedColorArray");
 			return new Color(value[0], value[1], value[2], value[3]);
@@ -1360,6 +1380,17 @@ public abstract class Godot implements VirtualStubs {
 			result[i][0] = values[i].x;
 			result[i][1] = values[i].y;
 			result[i][2] = values[i].z;
+		}
+		return result;
+	}
+
+	private static double[][] vector4ArrayToDoubleArray(Vector4[] values) {
+		double[][] result = new double[values.length][4];
+		for (int i = 0; i < values.length; i++) {
+			result[i][0] = values[i].x;
+			result[i][1] = values[i].y;
+			result[i][2] = values[i].z;
+			result[i][3] = values[i].w;
 		}
 		return result;
 	}

@@ -42,6 +42,9 @@ final class TypedAbiModel {
 			entry("PackedVector3Array",
 					new Descriptor("PackedVector3Array", param -> "typedPackedVector3ArrayArg(" + param + ")",
 							"double[][]")),
+			entry("PackedVector4Array",
+					new Descriptor("PackedVector4Array", param -> "typedPackedVector4ArrayArg(" + param + ")",
+							"double[][]")),
 			entry("PackedColorArray", new Descriptor("PackedColorArray",
 					param -> "typedPackedColorArrayArg(" + param + ")", "double[][]")));
 

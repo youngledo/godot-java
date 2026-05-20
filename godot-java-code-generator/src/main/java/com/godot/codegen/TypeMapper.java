@@ -79,6 +79,7 @@ public class TypeMapper {
 		TYPE_MAP.put("PackedStringArray", "String[]");
 		TYPE_MAP.put("PackedVector2Array", "double[][]");
 		TYPE_MAP.put("PackedVector3Array", "double[][]");
+		TYPE_MAP.put("PackedVector4Array", "double[][]");
 		TYPE_MAP.put("PackedColorArray", "double[][]");
 
 		// Typed arrays (legacy flat-array entries replaced by generic GodotArray<T>)
