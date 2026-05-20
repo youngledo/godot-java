@@ -97,4 +97,8 @@ public interface DispatchAccessor {
 
 	/// Returns the initialization level ordinal for a class. Defaults to SCENE (2).
 	int getInitLevel(String godotClassName);
+
+	/// Returns property names marked @RequiredInEditor. Each entry is "propertyName" or
+	/// "propertyName\tcustomMessage".
+	String[] getRequiredInEditorFields(String godotClassName);
 }

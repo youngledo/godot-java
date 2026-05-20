@@ -49,7 +49,7 @@ import java.util.StringJoiner;
 		"org.godot.annotation.Rpc", "org.godot.annotation.Tool", "org.godot.annotation.Constant",
 		"org.godot.annotation.GetProperty", "org.godot.annotation.SetProperty", "org.godot.annotation.GetPropertyList",
 		"org.godot.annotation.ValidateProperty", "org.godot.annotation.OnReady", "org.godot.annotation.EditorPlugin",
-		"org.godot.annotation.ExportToolButton"})
+		"org.godot.annotation.ExportToolButton", "org.godot.annotation.RequiredInEditor"})
 @javax.annotation.processing.SupportedSourceVersion(SourceVersion.RELEASE_25)
 public class GodotClassProcessor extends AbstractProcessor {
 
@@ -203,6 +203,9 @@ public class GodotClassProcessor extends AbstractProcessor {
 	private record ToolButtonInfo(String methodName, String buttonText) {
 	}
 
+	private record RequiredFieldInfo(String propertyName, String message) {
+	}
+
 	private record VirtualOverrideInfo(String javaName, String godotName, String returnType,
 			List<ParamTypeInfo> params) {
 	}
@@ -247,7 +250,8 @@ public class GodotClassProcessor extends AbstractProcessor {
 	private void collectMembers(TypeElement typeElement, List<MethodInfo> methods, List<FieldInfo> fields,
 			List<SignalInfo> signals, List<ConstantInfo> constants, List<String> dynamicGetters,
 			List<String> dynamicSetters, List<String> dynamicPropertyLists, List<String> validatePropertyMethods,
-			List<OnReadyFieldInfo> onReadyFields, List<ToolButtonInfo> toolButtons) {
+			List<OnReadyFieldInfo> onReadyFields, List<ToolButtonInfo> toolButtons,
+			List<RequiredFieldInfo> requiredFields) {
 		String currentGroup = "";
 		String currentGroupHint = "";
 		String currentSubgroup = "";
@@ -363,11 +367,19 @@ public class GodotClassProcessor extends AbstractProcessor {
 					String objectClassName = isGodotSubclass(field.asType())
 							? simpleTypeName(field.asType().toString())
 							: "";
+					// Collect @RequiredInEditor metadata
+					if (field.getAnnotation(org.godot.annotation.RequiredInEditor.class) != null) {
+						org.godot.annotation.RequiredInEditor reqAnn = field
+								.getAnnotation(org.godot.annotation.RequiredInEditor.class);
+						requiredFields.add(new RequiredFieldInfo(propName, reqAnn.value()));
+					}
+
 					fields.add(new FieldInfo(field.getSimpleName().toString(), propName,
 							typeToDescriptor(field.asType()), hintId, hintString, usage, currentGroup, currentGroupHint,
 							currentSubgroup, currentSubgroupHint, getter, setter, readOnly, defaultValue,
 							collectionTypeInfo(field.asType()), objectClassName));
 				}
+
 				// Collect @OnReady fields
 				if (field.getAnnotation(org.godot.annotation.OnReady.class) != null) {
 					org.godot.annotation.OnReady onReadyAnn = field.getAnnotation(org.godot.annotation.OnReady.class);
@@ -611,6 +623,7 @@ public class GodotClassProcessor extends AbstractProcessor {
 		Map<String, String> classValidateProperty = new LinkedHashMap<>();
 		Map<String, List<OnReadyFieldInfo>> classOnReadyFields = new LinkedHashMap<>();
 		Map<String, List<ToolButtonInfo>> classToolButtons = new LinkedHashMap<>();
+		Map<String, List<RequiredFieldInfo>> classRequiredFields = new LinkedHashMap<>();
 
 		Map<String, ClassDoc> classDocs = new LinkedHashMap<>();
 		Map<String, Map<String, MethodDoc>> methodDocs = new LinkedHashMap<>();
@@ -633,8 +646,9 @@ public class GodotClassProcessor extends AbstractProcessor {
 			List<String> validatePropertyMethods = new ArrayList<>();
 			List<OnReadyFieldInfo> onReadyFields = new ArrayList<>();
 			List<ToolButtonInfo> toolButtons = new ArrayList<>();
+			List<RequiredFieldInfo> requiredFields = new ArrayList<>();
 			collectMembers(typeElement, methods, fields, signals, constants, dynamicGetters, dynamicSetters,
-					dynamicPropertyLists, validatePropertyMethods, onReadyFields, toolButtons);
+					dynamicPropertyLists, validatePropertyMethods, onReadyFields, toolButtons, requiredFields);
 
 			// Convert @ExportToolButton methods into synthetic FieldInfo entries
 			// These get registered as properties with TOOL_BUTTON hint (39)
@@ -832,7 +846,8 @@ public class GodotClassProcessor extends AbstractProcessor {
 				writeDispatchIndex(w, classMethods, classFields, classSignals, classVirtualOverrides, virtualHashData,
 						virtualAllNames, classRpcConfigs, classConstants, classVirtualScriptMethods, classDocs,
 						methodDocs, propertyDocs, signalDocs, constantDocs, classDynamicGetters, classDynamicSetters,
-						classDynamicPropertyLists, classValidateProperty, classOnReadyFields, classToolButtons);
+						classDynamicPropertyLists, classValidateProperty, classOnReadyFields, classToolButtons,
+						classRequiredFields);
 			}
 
 			processingEnv.getMessager().printMessage(Diagnostic.Kind.NOTE,
@@ -853,8 +868,8 @@ public class GodotClassProcessor extends AbstractProcessor {
 			Map<String, Map<String, SignalDoc>> signalDocs, Map<String, Map<String, ConstantDoc>> constantDocs,
 			Map<String, List<String>> classDynamicGetters, Map<String, List<String>> classDynamicSetters,
 			Map<String, List<String>> classDynamicPropertyLists, Map<String, String> classValidateProperty,
-			Map<String, List<OnReadyFieldInfo>> classOnReadyFields, Map<String, List<ToolButtonInfo>> classToolButtons)
-			throws IOException {
+			Map<String, List<OnReadyFieldInfo>> classOnReadyFields, Map<String, List<ToolButtonInfo>> classToolButtons,
+			Map<String, List<RequiredFieldInfo>> classRequiredFields) throws IOException {
 
 		// --- Package + imports ---
 		w.write("package " + REGISTRY_PACKAGE + ";\n\n");
@@ -1257,6 +1272,26 @@ public class GodotClassProcessor extends AbstractProcessor {
 		w.write("        _INIT_LEVELS = Collections.unmodifiableMap(m);\n");
 		w.write("    }\n");
 		w.write("    public int getInitLevel(String name) { return _INIT_LEVELS.getOrDefault(name, 2); }\n\n");
+
+		// --- REQUIRED_IN_EDITOR map ---
+		if (!classRequiredFields.isEmpty()) {
+			w.write("    private static final Map<String, String[]> _REQUIRED_IN_EDITOR;\n");
+			w.write("    static {\n");
+			w.write("        var m = new HashMap<String, String[]>();\n");
+			for (var e : classRequiredFields.entrySet()) {
+				w.write("        m.put(\"" + e.getKey() + "\", new String[] {");
+				for (RequiredFieldInfo rf : e.getValue()) {
+					String val = rf.message().isEmpty() ? rf.propertyName() : rf.propertyName() + "\t" + rf.message();
+					w.write("\"" + val + "\", ");
+				}
+				w.write("});\n");
+			}
+			w.write("        _REQUIRED_IN_EDITOR = Collections.unmodifiableMap(m);\n");
+			w.write("    }\n");
+			w.write("    public String[] getRequiredInEditorFields(String name) { return _REQUIRED_IN_EDITOR.getOrDefault(name, new String[0]); }\n\n");
+		} else {
+			w.write("    public String[] getRequiredInEditorFields(String name) { return new String[0]; }\n\n");
+		}
 
 		// --- CONSTANTS map ---
 		if (!classConstants.isEmpty()) {
@@ -2089,7 +2124,7 @@ public class GodotClassProcessor extends AbstractProcessor {
 			List<SignalInfo> signals = new ArrayList<>();
 			collectMembers(typeElement, new ArrayList<>(), new ArrayList<>(), signals, new ArrayList<>(),
 					new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new ArrayList<>(),
-					new ArrayList<>());
+					new ArrayList<>(), new ArrayList<>());
 
 			List<SignalInfo> supported = new ArrayList<>();
 			for (SignalInfo si : signals) {

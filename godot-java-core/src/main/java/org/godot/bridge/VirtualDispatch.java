@@ -7,6 +7,10 @@ import org.godot.core.Variant;
 import org.godot.internal.GodotClassRegistry;
 import org.godot.internal.api.VirtualMethods;
 import org.godot.internal.dispatch.Dispatch;
+import org.godot.collection.GodotArray;
+import org.godot.core.VariantUtils;
+import org.godot.collection.GodotArray;
+import org.godot.core.VariantUtils;
 import org.godot.internal.ref.JavaObjectMap;
 
 import java.lang.foreign.FunctionDescriptor;
@@ -343,7 +347,30 @@ public final class VirtualDispatch {
 	}
 
 	// ------------------------------------------------------------------------
-	// Return value helpers
+
+	/// Handle _getConfigurationWarnings by checking @RequiredInEditor fields.
+	/// Builds a warning list for any required field that is null or empty.
+	private static void handleConfigurationWarnings(String godotClassName, Godot obj, MemorySegment ret) {
+		String[] requiredFields = Dispatch.getRequiredInEditorFields(godotClassName);
+		if (requiredFields.length == 0) {
+			writeNil(ret);
+			return;
+		}
+		java.util.List<String> warnings = new java.util.ArrayList<>();
+		for (String entry : requiredFields) {
+			String[] parts = entry.split("\t", 2);
+			String propName = parts[0];
+			String customMsg = parts.length > 1 ? parts[1] : null;
+			Object value = Dispatch.getProperty(godotClassName, propName, obj);
+			if (value == null) {
+				String msg = customMsg != null ? customMsg : "Property '" + propName + "' is required.";
+				warnings.add(msg);
+			}
+		}
+		GodotArray arr = GodotArray.of(warnings.toArray(new String[0]));
+		VariantUtils.writeVariantFromObject(ret, arr);
+	}
+
 	// ------------------------------------------------------------------------
 
 	private static void writeNil(MemorySegment ret) {

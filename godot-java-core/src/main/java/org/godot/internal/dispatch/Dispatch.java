@@ -185,6 +185,10 @@ public final class Dispatch {
 		return accessor.getInitLevel(className);
 	}
 
+	public static String[] getRequiredInEditorFields(String className) {
+		return accessor.getRequiredInEditorFields(className);
+	}
+
 	private Dispatch() {
 	}
 
@@ -381,6 +385,11 @@ public final class Dispatch {
 		@Override
 		public int getInitLevel(String c) {
 			return 2;
+		}
+
+		@Override
+		public String[] getRequiredInEditorFields(String c) {
+			return new String[0];
 		}
 	}
 }
