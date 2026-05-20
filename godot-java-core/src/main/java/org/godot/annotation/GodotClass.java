@@ -38,4 +38,7 @@ public @interface GodotClass {
 
 	/// If true, this class cannot be instantiated from GDScript or other scripts.
 	boolean noInit() default false;
+
+	/// Initialization level for class registration. Defaults to SCENE.
+	InitLevel initLevel() default InitLevel.SCENE;
 }

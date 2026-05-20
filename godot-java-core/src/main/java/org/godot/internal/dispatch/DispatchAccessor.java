@@ -94,4 +94,7 @@ public interface DispatchAccessor {
 	String getExportDefaultValue(String godotClassName, String propertyName);
 
 	boolean isEditorPluginClass(String godotClassName);
+
+	/// Returns the initialization level ordinal for a class. Defaults to SCENE (2).
+	int getInitLevel(String godotClassName);
 }

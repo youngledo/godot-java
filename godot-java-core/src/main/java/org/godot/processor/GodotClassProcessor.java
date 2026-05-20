@@ -48,7 +48,8 @@ import java.util.StringJoiner;
 		"org.godot.annotation.GodotMethod", "org.godot.annotation.Export", "org.godot.annotation.Signal",
 		"org.godot.annotation.Rpc", "org.godot.annotation.Tool", "org.godot.annotation.Constant",
 		"org.godot.annotation.GetProperty", "org.godot.annotation.SetProperty", "org.godot.annotation.GetPropertyList",
-		"org.godot.annotation.ValidateProperty", "org.godot.annotation.OnReady", "org.godot.annotation.EditorPlugin"})
+		"org.godot.annotation.ValidateProperty", "org.godot.annotation.OnReady", "org.godot.annotation.EditorPlugin",
+		"org.godot.annotation.ExportToolButton"})
 @javax.annotation.processing.SupportedSourceVersion(SourceVersion.RELEASE_25)
 public class GodotClassProcessor extends AbstractProcessor {
 
@@ -89,12 +90,13 @@ public class GodotClassProcessor extends AbstractProcessor {
 							boolean noInit = anno.noInit();
 							boolean isEditorPlugin = typeElement
 									.getAnnotation(org.godot.annotation.EditorPlugin.class) != null;
+							int initLevelOrdinal = anno.initLevel().ordinal();
 							discoveredClasses.add(new ClassEntry(fqn, anno.name(), anno.parent(), isTool, isSingleton,
-									isInternal, noInit, isEditorPlugin));
+									isInternal, noInit, isEditorPlugin, initLevelOrdinal));
 						}
 					} catch (Exception e) {
 						discoveredClasses.add(new ClassEntry(fqn, typeElement.getSimpleName().toString(), "RefCounted",
-								false, false, false, false, false));
+								false, false, false, false, false, 2));
 					}
 				}
 			}
@@ -178,7 +180,7 @@ public class GodotClassProcessor extends AbstractProcessor {
 	// -----------------------------------------------------------------------
 
 	private record ClassEntry(String fqn, String godotClassName, String parentClass, boolean isTool,
-			boolean isSingleton, boolean isInternal, boolean noInit, boolean isEditorPlugin) {
+			boolean isSingleton, boolean isInternal, boolean noInit, boolean isEditorPlugin, int initLevelOrdinal) {
 	}
 
 	private record MethodInfo(String javaName, String godotName, String returnType, List<String> paramTypes,
@@ -196,6 +198,9 @@ public class GodotClassProcessor extends AbstractProcessor {
 	}
 
 	private record SignalInfo(String javaName, String signalName, List<String> paramTypes, List<String> paramNames) {
+	}
+
+	private record ToolButtonInfo(String methodName, String buttonText) {
 	}
 
 	private record VirtualOverrideInfo(String javaName, String godotName, String returnType,
@@ -1223,6 +1228,17 @@ public class GodotClassProcessor extends AbstractProcessor {
 		w.write("        _EDITOR_PLUGIN_CLASSES = Collections.unmodifiableSet(s);\n");
 		w.write("    }\n");
 		w.write("    public boolean isEditorPluginClass(String name) { return _EDITOR_PLUGIN_CLASSES.contains(name); }\n\n");
+
+		// --- INIT_LEVELS map ---
+		w.write("    private static final Map<String, Integer> _INIT_LEVELS;\n");
+		w.write("    static {\n");
+		w.write("        var m = new HashMap<String, Integer>();\n");
+		for (ClassEntry entry : discoveredClasses) {
+			w.write("        m.put(\"" + entry.godotClassName() + "\", " + entry.initLevelOrdinal() + ");\n");
+		}
+		w.write("        _INIT_LEVELS = Collections.unmodifiableMap(m);\n");
+		w.write("    }\n");
+		w.write("    public int getInitLevel(String name) { return _INIT_LEVELS.getOrDefault(name, 2); }\n\n");
 
 		// --- CONSTANTS map ---
 		if (!classConstants.isEmpty()) {

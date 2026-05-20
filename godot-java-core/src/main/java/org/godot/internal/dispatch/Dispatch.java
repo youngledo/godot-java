@@ -181,6 +181,10 @@ public final class Dispatch {
 		return accessor.isEditorPluginClass(className);
 	}
 
+	public static int getInitLevel(String className) {
+		return accessor.getInitLevel(className);
+	}
+
 	private Dispatch() {
 	}
 
@@ -372,6 +376,11 @@ public final class Dispatch {
 		@Override
 		public boolean isEditorPluginClass(String c) {
 			return false;
+		}
+
+		@Override
+		public int getInitLevel(String c) {
+			return 2;
 		}
 	}
 }
