@@ -816,20 +816,18 @@ static void godot_java_initialize(void *userdata, GDExtensionInitializationLevel
     std::cout << "godot-java: initialize level " << p_level << std::endl;
     std::cout.flush();
 
-    // Register extension classes at SCENE level, when Node and other scene classes are available
-    if (p_level == GDEXTENSION_INITIALIZATION_SCENE && g_jni_env) {
+    // Register extension classes for each level
+    if (g_jni_env) {
         JNIEnv* env = g_jni_env;
         jclass bootstrap_class = env->FindClass("org/godot/bootstrap/Bootstrap");
         if (bootstrap_class) {
-            jmethodID register_method = env->GetStaticMethodID(bootstrap_class, "registerClasses", "()V");
+            jmethodID register_method = env->GetStaticMethodID(bootstrap_class, "registerClassesAtLevel", "(I)V");
             if (register_method) {
-                env->CallStaticVoidMethod(bootstrap_class, register_method);
+                env->CallStaticVoidMethod(bootstrap_class, register_method, (jint)p_level);
                 if (env->ExceptionOccurred()) {
-                    std::cerr << "godot-java: Bootstrap.registerClasses() threw exception" << std::endl;
+                    std::cerr << "godot-java: Bootstrap.registerClassesAtLevel(" << p_level << ") threw exception" << std::endl;
                     env->ExceptionDescribe();
                     env->ExceptionClear();
-                } else {
-                    std::cout << "godot-java: Classes registered at SCENE level" << std::endl;
                 }
             }
         }
@@ -839,19 +837,18 @@ static void godot_java_initialize(void *userdata, GDExtensionInitializationLevel
 static void godot_java_deinitialize(void *userdata, GDExtensionInitializationLevel p_level) {
     std::cout << "godot-java: deinitialize level " << p_level << std::endl;
 
-    if (p_level == GDEXTENSION_INITIALIZATION_SCENE && g_jni_env) {
+    // Unregister extension classes for each level (in reverse order)
+    if (g_jni_env) {
         JNIEnv* env = g_jni_env;
         jclass bootstrap_class = env->FindClass("org/godot/bootstrap/Bootstrap");
         if (bootstrap_class) {
-            jmethodID cleanup_method = env->GetStaticMethodID(bootstrap_class, "cleanup", "()V");
+            jmethodID cleanup_method = env->GetStaticMethodID(bootstrap_class, "cleanupAtLevel", "(I)V");
             if (cleanup_method) {
-                env->CallStaticVoidMethod(bootstrap_class, cleanup_method);
+                env->CallStaticVoidMethod(bootstrap_class, cleanup_method, (jint)p_level);
                 if (env->ExceptionOccurred()) {
-                    std::cerr << "godot-java: Bootstrap.cleanup() threw exception" << std::endl;
+                    std::cerr << "godot-java: Bootstrap.cleanupAtLevel(" << p_level << ") threw exception" << std::endl;
                     env->ExceptionDescribe();
                     env->ExceptionClear();
-                } else {
-                    std::cout << "godot-java: Cleanup completed at SCENE level" << std::endl;
                 }
             }
         }
@@ -875,7 +872,7 @@ extern "C" GDExtensionBool GDE_EXPORT godot_java_init(
     std::cout.flush();
 
     // Fill initialization structure
-    r_initialization->minimum_initialization_level = GDEXTENSION_INITIALIZATION_SCENE;
+    r_initialization->minimum_initialization_level = GDEXTENSION_INITIALIZATION_CORE;
     r_initialization->userdata = nullptr;
     r_initialization->initialize = godot_java_initialize;
     r_initialization->deinitialize = godot_java_deinitialize;

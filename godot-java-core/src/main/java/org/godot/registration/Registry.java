@@ -261,6 +261,25 @@ public final class Registry {
 	}
 
 	/**
+	 * Unregister specific classes. Used for per-level deinitialization.
+	 *
+	 * @param classes
+	 *            the classes to unregister
+	 */
+	public static void unregisterClasses(java.util.List<Class<?>> classes) {
+		for (Class<?> cls : classes) {
+			String className = Dispatch.getGodotClassName(cls.getName());
+			if (className != null && registeredClassNames.contains(className)) {
+				GodotStringName classNameSn = GodotStringName.fromJavaString(className);
+				Bridge.callVoid(ApiIndex.CLASSDB_UNREGISTER_EXTENSION_CLASS,
+						MemorySegment.ofAddress(Bridge.libraryPtr()), classNameSn.segment());
+				registeredClassNames.remove(className);
+				logger.debug("Unregistered class at level: {}", className);
+			}
+		}
+	}
+
+	/**
 	 * Reload user classes: unregister old classes, re-register with new
 	 * definitions. Used for hot reload.
 	 *
