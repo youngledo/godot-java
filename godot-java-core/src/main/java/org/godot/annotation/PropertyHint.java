@@ -17,7 +17,8 @@ public enum PropertyHint {
 											26), GLOBAL_SAVE_FILE(27), INT_IS_OBJECTID(28), INT_IS_POINTER(
 													29), ARRAY_TYPE(30), LOCALE_ID(31), LOCALIZABLE_STRING(
 															32), NODE_TYPE(33), HIDE_QUATERNION_COMPONENT(34), PASSWORD(
-																	35), LAYERS_AVOIDANCE(37), ARRAY(38), MAX(39);
+																	35), LAYERS_AVOIDANCE(
+																			37), ARRAY(38), TOOL_BUTTON(39), MAX(40);
 
 	private final int id;
 

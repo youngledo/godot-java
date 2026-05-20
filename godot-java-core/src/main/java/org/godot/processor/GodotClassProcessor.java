@@ -247,7 +247,7 @@ public class GodotClassProcessor extends AbstractProcessor {
 	private void collectMembers(TypeElement typeElement, List<MethodInfo> methods, List<FieldInfo> fields,
 			List<SignalInfo> signals, List<ConstantInfo> constants, List<String> dynamicGetters,
 			List<String> dynamicSetters, List<String> dynamicPropertyLists, List<String> validatePropertyMethods,
-			List<OnReadyFieldInfo> onReadyFields) {
+			List<OnReadyFieldInfo> onReadyFields, List<ToolButtonInfo> toolButtons) {
 		String currentGroup = "";
 		String currentGroupHint = "";
 		String currentSubgroup = "";
@@ -273,6 +273,14 @@ public class GodotClassProcessor extends AbstractProcessor {
 
 				// @Signal methods are registered as signals, not callable methods
 				if (method.getAnnotation(org.godot.annotation.Signal.class) != null) {
+					continue;
+				}
+
+				// @ExportToolButton — collect for property registration
+				if (method.getAnnotation(org.godot.annotation.ExportToolButton.class) != null) {
+					org.godot.annotation.ExportToolButton tbAnn = method
+							.getAnnotation(org.godot.annotation.ExportToolButton.class);
+					toolButtons.add(new ToolButtonInfo(method.getSimpleName().toString(), tbAnn.value()));
 					continue;
 				}
 				// @GetProperty / @SetProperty / @GetPropertyList — dynamic property dispatch
@@ -602,6 +610,7 @@ public class GodotClassProcessor extends AbstractProcessor {
 		Map<String, List<String>> classDynamicPropertyLists = new LinkedHashMap<>();
 		Map<String, String> classValidateProperty = new LinkedHashMap<>();
 		Map<String, List<OnReadyFieldInfo>> classOnReadyFields = new LinkedHashMap<>();
+		Map<String, List<ToolButtonInfo>> classToolButtons = new LinkedHashMap<>();
 
 		Map<String, ClassDoc> classDocs = new LinkedHashMap<>();
 		Map<String, Map<String, MethodDoc>> methodDocs = new LinkedHashMap<>();
@@ -623,9 +632,17 @@ public class GodotClassProcessor extends AbstractProcessor {
 			List<String> dynamicPropertyLists = new ArrayList<>();
 			List<String> validatePropertyMethods = new ArrayList<>();
 			List<OnReadyFieldInfo> onReadyFields = new ArrayList<>();
+			List<ToolButtonInfo> toolButtons = new ArrayList<>();
 			collectMembers(typeElement, methods, fields, signals, constants, dynamicGetters, dynamicSetters,
-					dynamicPropertyLists, validatePropertyMethods, onReadyFields);
+					dynamicPropertyLists, validatePropertyMethods, onReadyFields, toolButtons);
 
+			// Convert @ExportToolButton methods into synthetic FieldInfo entries
+			// These get registered as properties with TOOL_BUTTON hint (39)
+			for (ToolButtonInfo tb : toolButtons) {
+				fields.add(new FieldInfo(tb.methodName(), "_" + tb.methodName(), "void", 39, tb.buttonText(),
+						8 /* PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_STORAGE */, "", "", "", "", "", "", false, "", null,
+						""));
+			}
 			String gcn = entry.godotClassName();
 			if (!methods.isEmpty())
 				classMethods.put(gcn, methods);
@@ -815,7 +832,7 @@ public class GodotClassProcessor extends AbstractProcessor {
 				writeDispatchIndex(w, classMethods, classFields, classSignals, classVirtualOverrides, virtualHashData,
 						virtualAllNames, classRpcConfigs, classConstants, classVirtualScriptMethods, classDocs,
 						methodDocs, propertyDocs, signalDocs, constantDocs, classDynamicGetters, classDynamicSetters,
-						classDynamicPropertyLists, classValidateProperty, classOnReadyFields);
+						classDynamicPropertyLists, classValidateProperty, classOnReadyFields, classToolButtons);
 			}
 
 			processingEnv.getMessager().printMessage(Diagnostic.Kind.NOTE,
@@ -836,7 +853,8 @@ public class GodotClassProcessor extends AbstractProcessor {
 			Map<String, Map<String, SignalDoc>> signalDocs, Map<String, Map<String, ConstantDoc>> constantDocs,
 			Map<String, List<String>> classDynamicGetters, Map<String, List<String>> classDynamicSetters,
 			Map<String, List<String>> classDynamicPropertyLists, Map<String, String> classValidateProperty,
-			Map<String, List<OnReadyFieldInfo>> classOnReadyFields) throws IOException {
+			Map<String, List<OnReadyFieldInfo>> classOnReadyFields, Map<String, List<ToolButtonInfo>> classToolButtons)
+			throws IOException {
 
 		// --- Package + imports ---
 		w.write("package " + REGISTRY_PACKAGE + ";\n\n");
@@ -2070,7 +2088,8 @@ public class GodotClassProcessor extends AbstractProcessor {
 
 			List<SignalInfo> signals = new ArrayList<>();
 			collectMembers(typeElement, new ArrayList<>(), new ArrayList<>(), signals, new ArrayList<>(),
-					new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
+					new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new ArrayList<>(),
+					new ArrayList<>());
 
 			List<SignalInfo> supported = new ArrayList<>();
 			for (SignalInfo si : signals) {
