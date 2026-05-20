@@ -305,6 +305,12 @@ public final class VirtualDispatch {
 				writeNil(ret);
 				return;
 			}
+
+			// Intercept _getConfigurationWarnings to inject @RequiredInEditor warnings
+			if ("_getConfigurationWarnings".equals(methodName)) {
+				handleConfigurationWarnings(godotClassName, obj, ret);
+				return;
+			}
 			try {
 				Dispatch.dispatchVirtual(godotClassName, methodName, instance, args, ret);
 				return;
