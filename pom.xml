@@ -264,5 +264,19 @@
                 </plugins>
             </build>
         </profile>
+
+        <!-- Custom API: point codegen at an alternative extension_api.json.
+             Usage: mvn generate-sources -Papi-custom -Dgodot.api.json=/path/to/extension_api.json
+             Optionally also override the interface JSON:
+               -Dgodot.interface.json=/path/to/gdextension_interface.json
+             Combine with other profiles:
+               mvn generate-sources -Papi-custom,double-precision -Dgodot.api.json=...
+        -->
+        <profile>
+            <id>api-custom</id>
+            <properties>
+                <codegen.force>true</codegen.force>
+            </properties>
+        </profile>
     </profiles>
 </project>
