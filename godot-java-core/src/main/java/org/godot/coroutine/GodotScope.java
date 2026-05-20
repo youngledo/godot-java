@@ -106,19 +106,21 @@ public final class GodotScope {
 
 	/// Await a signal on a Godot object. Connects a one-shot native callable,
 	/// parks the current coroutine, and resumes when the signal fires.
+	/// Returns the signal arguments, or an empty array if the signal has no args.
 	/// Must be called from a coroutine launched via `launch()`.
-	public static void awaitSignal(Godot source, String signalName) {
+	public static Object[] awaitSignal(Godot source, String signalName) {
 		SignalHandle handle = new SignalHandle();
 		NativeCallable nc = createSignalCallable(handle);
 		Callable callable = new Callable(nc);
 		source.connect(signalName, callable, ConnectFlags.ONE_SHOT);
 		handle.await();
 		nc.free();
+		return handle.args();
 	}
 
 	/// Await a signal with a timeout. Disconnects on timeout.
-	/// Returns true if the signal fired, false if timed out.
-	public static boolean awaitSignal(Godot source, String signalName, Duration timeout) {
+	/// Returns the signal arguments if fired, or null if timed out.
+	public static Object[] awaitSignal(Godot source, String signalName, Duration timeout) {
 		SignalHandle handle = new SignalHandle();
 		NativeCallable nc = createSignalCallable(handle);
 		Callable callable = new Callable(nc);
@@ -128,7 +130,7 @@ public final class GodotScope {
 			source.disconnect(signalName, callable);
 		}
 		nc.free();
-		return result != null;
+		return result;
 	}
 
 	/// Create a NativeCallable that fires a SignalHandle when invoked.
