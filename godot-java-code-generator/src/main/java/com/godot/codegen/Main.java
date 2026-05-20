@@ -86,6 +86,9 @@ public class Main {
 		System.out.println("Generating " + classes.size() + " engine classes...");
 		Files.createDirectories(Path.of(outputDir));
 
+		// Generate GodotApiVersion from extension_api.json header
+		GodotVersionGenerator.generate(parser.getApi().header(), outputDir);
+
 		JavaClassGenerator generator = new JavaClassGenerator(NODE_PACKAGE, classes);
 		int generated = 0;
 		int signalClassesGenerated = 0;
