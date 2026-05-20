@@ -187,7 +187,8 @@ public class GodotClassProcessor extends AbstractProcessor {
 
 	private record FieldInfo(String javaName, String propertyName, String type, int hintId, String hintString,
 			int usage, String group, String groupHint, String subgroup, String subgroupHint, String getter,
-			String setter, boolean readOnly, String defaultValue, CollectionTypeInfo collectionType) {
+			String setter, boolean readOnly, String defaultValue, CollectionTypeInfo collectionType,
+			String objectClassName) {
 	}
 
 	private record CollectionTypeInfo(String containerType, String elementType, String keyType, String valueType,
@@ -346,10 +347,13 @@ public class GodotClassProcessor extends AbstractProcessor {
 						setter = "";
 					}
 					String defaultValue = ann != null ? ann.defaultValue() : "";
+					String objectClassName = isGodotSubclass(field.asType())
+							? simpleTypeName(field.asType().toString())
+							: "";
 					fields.add(new FieldInfo(field.getSimpleName().toString(), propName,
 							typeToDescriptor(field.asType()), hintId, hintString, usage, currentGroup, currentGroupHint,
 							currentSubgroup, currentSubgroupHint, getter, setter, readOnly, defaultValue,
-							collectionTypeInfo(field.asType())));
+							collectionTypeInfo(field.asType()), objectClassName));
 				}
 				// Collect @OnReady fields
 				if (field.getAnnotation(org.godot.annotation.OnReady.class) != null) {
@@ -957,7 +961,8 @@ public class GodotClassProcessor extends AbstractProcessor {
 						+ "\"" + ", " + "\"" + escapeJava(f.setter()) + "\"" + ", " + f.readOnly() + ", " + "\""
 						+ escapeJava(f.group()) + "\"" + ", " + "\"" + escapeJava(f.groupHint()) + "\"" + ", " + "\""
 						+ escapeJava(f.subgroup()) + "\"" + ", " + "\"" + escapeJava(f.subgroupHint()) + "\"" + ", "
-						+ collectionTypeExpression(f.collectionType()) + "),\n";
+						+ collectionTypeExpression(f.collectionType()) + ", " + "\"" + escapeJava(f.objectClassName())
+						+ "\"" + "),\n";
 				w.write(line);
 			}
 			w.write("        });\n");

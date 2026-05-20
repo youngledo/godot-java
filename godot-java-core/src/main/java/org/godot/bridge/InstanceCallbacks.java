@@ -570,9 +570,12 @@ public final class InstanceCallbacks {
 					MemorySegment.ofAddress(nameSn.segment().address()));
 			// class_name (StringName*) — MUST be valid pointer, Godot dereferences
 			// unconditionally
-			GodotStringName emptySn = GodotStringName.fromJavaString("");
+			String objClassName = meta.objectClassName();
+			GodotStringName classSn = (objClassName != null && !objClassName.isEmpty())
+					? GodotStringName.fromJavaString(objClassName)
+					: GodotStringName.fromJavaString("");
 			listBuf.set(ADDRESS, offset + StructOffsets.PROPERTY_INFO_OFF_CLASS_NAME,
-					MemorySegment.ofAddress(emptySn.segment().address()));
+					MemorySegment.ofAddress(classSn.segment().address()));
 
 			int hintId = meta.hintId();
 			String hintStr = meta.hintString();

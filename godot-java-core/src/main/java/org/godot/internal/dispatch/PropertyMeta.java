@@ -6,22 +6,22 @@ package org.godot.internal.dispatch;
  */
 public record PropertyMeta(String javaName, String godotName, String typeName, int hintId, String hintString, int usage,
 		String getter, String setter, boolean readOnly, String group, String groupHint, String subgroup,
-		String subgroupHint, CollectionTypeMeta collectionType) {
+		String subgroupHint, CollectionTypeMeta collectionType, String objectClassName) {
 
 	public PropertyMeta(String javaName, String godotName, String typeName, int hintId, String hintString) {
-		this(javaName, godotName, typeName, hintId, hintString, 1 | 2 | 4 | 8, "", "", false, "", "", "", "", null);
+		this(javaName, godotName, typeName, hintId, hintString, 1 | 2 | 4 | 8, "", "", false, "", "", "", "", null, "");
 	}
 
 	public PropertyMeta(String javaName, String godotName, String typeName, int hintId, String hintString, int usage,
 			String group, String groupHint, String subgroup, String subgroupHint) {
 		this(javaName, godotName, typeName, hintId, hintString, usage, "", "", false, group, groupHint, subgroup,
-				subgroupHint, null);
+				subgroupHint, null, "");
 	}
 
 	public PropertyMeta(String javaName, String godotName, String typeName, int hintId, String hintString, int usage,
 			String getter, String setter, boolean readOnly, String group, String groupHint, String subgroup,
 			String subgroupHint) {
 		this(javaName, godotName, typeName, hintId, hintString, usage, getter, setter, readOnly, group, groupHint,
-				subgroup, subgroupHint, null);
+				subgroup, subgroupHint, null, "");
 	}
 }
