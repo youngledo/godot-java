@@ -159,7 +159,13 @@ public final class PropertyRegistration {
 			case "org.godot.math.Vector3" -> VariantType.VECTOR3;
 			case "org.godot.math.Vector2i" -> VariantType.VECTOR2I;
 			case "org.godot.math.Vector3i" -> VariantType.VECTOR3I;
-			default -> VariantType.OBJECT;
+			default -> {
+				if (typeName.startsWith("org.godot.collection.GodotArray"))
+					yield VariantType.ARRAY;
+				if (typeName.startsWith("org.godot.collection.GodotDictionary"))
+					yield VariantType.DICTIONARY;
+				yield VariantType.OBJECT;
+			}
 		};
 	}
 

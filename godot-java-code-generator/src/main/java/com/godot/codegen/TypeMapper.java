@@ -92,11 +92,6 @@ public class TypeMapper {
 		TYPE_MAP.put("Callable", "Callable");
 		TYPE_MAP.put("Signal", "Signal");
 		TYPE_MAP.put("RID", "long");
-
-		// Typed arrays
-		TYPE_MAP.put("typedarray::String", "String[]");
-		TYPE_MAP.put("typedarray::Vector2", "double[][]");
-		TYPE_MAP.put("typedarray::Vector3", "double[][]");
 	}
 
 	private static final Map<String, String> META_TYPE_MAP = new HashMap<>();
@@ -217,7 +212,8 @@ public class TypeMapper {
 			return false;
 		}
 		// Skip special prefixes
-		if (godotType.startsWith("enum::") || godotType.startsWith("typedarray::")) {
+		if (godotType.startsWith("enum::") || godotType.startsWith("typedarray::")
+				|| godotType.startsWith("typeddictionary::")) {
 			return false;
 		}
 		// Check if it's a known built-in type

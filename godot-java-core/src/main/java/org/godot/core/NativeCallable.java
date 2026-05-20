@@ -36,7 +36,7 @@ public final class NativeCallable {
 	/** Token pointer for identifying this GDExtension (library pointer). */
 	private static final long TOKEN = Bridge.libraryPtr();
 
-	/** Native memory segment pointing to the Callable struct (32 bytes). */
+	/** Native memory segment pointing to the Callable struct (16 bytes). */
 	private final MemorySegment segment;
 
 	/** Key for unregistering from CallableDispatch. */
@@ -70,8 +70,8 @@ public final class NativeCallable {
 		// Register the callable with CallableDispatch, get a key for userdata
 		long key = CallableDispatch.registerCallable(object, methodName, boundArgs);
 
-		// Allocate the native Callable struct (32 bytes)
-		MemorySegment callableSeg = Bridge.allocate(32);
+		// Allocate the native Callable struct
+		MemorySegment callableSeg = Bridge.allocate(Callable.NATIVE_SIZE);
 
 		// Allocate the GDExtensionCallableCustomInfo2 struct
 		MemorySegment infoSeg = Bridge.allocate(INFO_SIZE);
@@ -112,7 +112,7 @@ public final class NativeCallable {
 		return new NativeCallable(callableSeg, key);
 	}
 
-	private NativeCallable(MemorySegment segment, long dispatchKey) {
+	NativeCallable(MemorySegment segment, long dispatchKey) {
 		this.segment = segment;
 		this.dispatchKey = dispatchKey;
 	}
@@ -131,10 +131,11 @@ public final class NativeCallable {
 		return segment.address();
 	}
 
-	/**
-	 * Free this callable and unregister from CallableDispatch.
-	 */
+	/// Free this callable and unregister from CallableDispatch.
+	/// No-op for Godot-owned callables (dispatchKey == 0).
 	public void free() {
-		CallableDispatch.unregisterCallable(dispatchKey);
+		if (dispatchKey != 0) {
+			CallableDispatch.unregisterCallable(dispatchKey);
+		}
 	}
 }

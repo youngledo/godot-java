@@ -574,9 +574,14 @@ public final class InstanceCallbacks {
 			listBuf.set(ADDRESS, offset + StructOffsets.PROPERTY_INFO_OFF_CLASS_NAME,
 					MemorySegment.ofAddress(emptySn.segment().address()));
 
-			listBuf.set(JAVA_INT, offset + StructOffsets.PROPERTY_INFO_OFF_HINT, meta.hintId());
-
+			int hintId = meta.hintId();
 			String hintStr = meta.hintString();
+			if (meta.collectionType() != null && meta.collectionType().isArray() && hintStr.isEmpty()) {
+				hintId = org.godot.annotation.PropertyHint.ARRAY_TYPE.id();
+				hintStr = meta.collectionType().arrayHintString();
+			}
+			listBuf.set(JAVA_INT, offset + StructOffsets.PROPERTY_INFO_OFF_HINT, hintId);
+
 			GodotString hintString = hintStr.isEmpty()
 					? GodotString.fromJavaString("")
 					: GodotString.fromJavaString(hintStr);

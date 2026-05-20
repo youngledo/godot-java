@@ -6,7 +6,10 @@ import org.godot.core.Variant;
 import org.godot.core.VariantUtils;
 import org.godot.bridge.Bridge;
 import org.godot.internal.api.ApiIndex;
+import org.godot.internal.api.VariantType;
 import java.lang.foreign.MemorySegment;
+import java.lang.invoke.MethodHandle;
+import java.util.Map;
 import static java.lang.foreign.ValueLayout.ADDRESS;
 
 /**
@@ -39,8 +42,7 @@ public class GodotDictionary<K, V> extends RefCounted {
 	 * Create an empty Dictionary wrapper (invalid).
 	 */
 	public GodotDictionary() {
-		super(0);
-		this.ownedVariant = null;
+		this(createEmptyVariant());
 	}
 
 	private GodotDictionary(OwnedVariant ownedVariant) {
@@ -48,9 +50,45 @@ public class GodotDictionary<K, V> extends RefCounted {
 		this.ownedVariant = ownedVariant;
 	}
 
+	private static OwnedVariant createEmptyVariant() {
+		MemorySegment variant = Bridge.allocVariant();
+		MethodHandle ctor = Variant.getTypeConstructor(VariantType.DICTIONARY.id());
+		if (ctor == null) {
+			throw new IllegalStateException("Dictionary Variant constructor is not available");
+		}
+		MemorySegment dictionaryData = Bridge.allocate(8);
+		try {
+			ctor.invoke(variant, dictionaryData);
+			return OwnedVariant.copyOf(variant);
+		} catch (Throwable t) {
+			throw new RuntimeException("Failed to create Godot Dictionary", t);
+		} finally {
+			Bridge.destroyVariant(variant);
+		}
+	}
+
 	public static GodotDictionary<?, ?> fromOwnedVariant(MemorySegment variantSeg) {
 		OwnedVariant owned = OwnedVariant.copyOf(variantSeg);
 		return new GodotDictionary<>(owned);
+	}
+
+	public static GodotDictionary<?, ?> of(Object... keyValues) {
+		if (keyValues.length % 2 != 0) {
+			throw new IllegalArgumentException("GodotDictionary.of requires an even number of key/value arguments");
+		}
+		GodotDictionary<Object, Object> dictionary = new GodotDictionary<>();
+		for (int i = 0; i < keyValues.length; i += 2) {
+			dictionary.put(keyValues[i], keyValues[i + 1]);
+		}
+		return dictionary;
+	}
+
+	public static <K, V> GodotDictionary<K, V> fromMap(Map<? extends K, ? extends V> values) {
+		GodotDictionary<K, V> dictionary = new GodotDictionary<>();
+		for (Map.Entry<? extends K, ? extends V> entry : values.entrySet()) {
+			dictionary.put(entry.getKey(), entry.getValue());
+		}
+		return dictionary;
 	}
 
 	/**

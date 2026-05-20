@@ -393,7 +393,7 @@ public final class VariantUtils {
 		if (type == VariantType.RID.id())
 			return new Rid(seg.get(JAVA_LONG, 8));
 		if (type == VariantType.CALLABLE.id())
-			return new Callable(null, "");
+			return readCallable(seg);
 		if (type == VariantType.SIGNAL.id()) {
 			long objPtr = seg.get(JAVA_LONG, 8);
 			if (objPtr == 0)
@@ -1071,41 +1071,72 @@ public final class VariantUtils {
 	}
 
 	private static Variant fromCallable(Callable callable) {
+		MemorySegment nativeCallable = callable.nativeSegment();
+		if (nativeCallable != null && !nativeCallable.equals(MemorySegment.NULL)) {
+			return fromNativeCallable(nativeCallable);
+		}
 		if (callable.getObject() == null) {
 			MemorySegment seg = Bridge.allocVariant();
 			seg.set(JAVA_INT, 0, VariantType.CALLABLE.id());
 			return new Variant(seg);
 		}
 
-		// Register dispatch and create native callable via callable_custom_create2
-		long key = org.godot.bridge.CallableDispatch.registerCallable(callable.getObject(), callable.getMethod());
+		long key = org.godot.bridge.CallableDispatch.registerCallable(callable.getObject(), callable.getMethod(),
+				callable.getBoundArgs());
 
-		// Allocate Callable variant (24 bytes: 4 type + 4 padding + 16 data)
 		MemorySegment seg = Bridge.arena().allocate(Variant.SIZE, 8);
 		seg.set(JAVA_INT, 0, VariantType.CALLABLE.id());
 
-		// Allocate GDExtensionCallableCustomInfo2 struct (96 bytes)
 		MemorySegment infoSeg = Bridge.allocate(96);
 		for (long i = 0; i < 96; i += 8) {
 			infoSeg.set(ADDRESS, i, MemorySegment.ofAddress(0));
 		}
 
-		// Fill GDExtensionCallableCustomInfo2:
-		// 0: callable_userdata (dispatch key as pointer)
 		infoSeg.set(ADDRESS, 0, MemorySegment.ofAddress(key));
-		// 8: token (library pointer)
 		infoSeg.set(ADDRESS, 8, MemorySegment.ofAddress(Bridge.libraryPtr()));
-		// 16: object_id (instance ID, not pointer)
 		long instanceId = Bridge.callLong(ApiIndex.OBJECT_GET_INSTANCE_ID,
 				MemorySegment.ofAddress(callable.getObject().getPtr()));
 		infoSeg.set(JAVA_LONG, 16, instanceId);
-		// 24: call_func
 		infoSeg.set(ADDRESS, 24, org.godot.bridge.CallableDispatch.getCallStub());
 
-		// Call callable_custom_create2(r_callable, info)
 		Bridge.callVoid(ApiIndex.CALLABLE_CUSTOM_CREATE2, seg.asSlice(8), infoSeg);
 
 		return new Variant(seg);
+	}
+
+	private static Callable readCallable(MemorySegment variantSegment) {
+		MemorySegment callableSeg = Bridge.ARENA.allocate(Callable.NATIVE_SIZE, 8);
+		MethodHandle extractor = Variant.getTypeExtractor(VariantType.CALLABLE.id());
+		if (extractor != null) {
+			try {
+				extractor.invoke(callableSeg, variantSegment);
+				return isEmptyCallable(callableSeg) ? new Callable(null, "") : new Callable(callableSeg);
+			} catch (Throwable t) {
+				logger.error("Callable type extractor failed", t);
+			}
+		}
+		MemorySegment.copy(variantSegment, 8, callableSeg, 0, Callable.NATIVE_SIZE);
+		return isEmptyCallable(callableSeg) ? new Callable(null, "") : new Callable(callableSeg);
+	}
+
+	private static Variant fromNativeCallable(MemorySegment nativeCallable) {
+		Variant variant = Variant.allocate();
+		MethodHandle constructor = Variant.getTypeConstructor(VariantType.CALLABLE.id());
+		if (constructor != null) {
+			try {
+				constructor.invoke(variant.getSegment(), nativeCallable);
+				return variant;
+			} catch (Throwable t) {
+				logger.error("Callable type constructor failed", t);
+			}
+		}
+		variant.getSegment().set(JAVA_INT, 0, VariantType.CALLABLE.id());
+		MemorySegment.copy(nativeCallable, 0, variant.getSegment(), 8, Callable.NATIVE_SIZE);
+		return variant;
+	}
+
+	private static boolean isEmptyCallable(MemorySegment callableSeg) {
+		return callableSeg.get(JAVA_LONG, 0) == 0 && callableSeg.get(JAVA_LONG, 8) == 0;
 	}
 
 	private static Variant fromSignal(Signal signal) {

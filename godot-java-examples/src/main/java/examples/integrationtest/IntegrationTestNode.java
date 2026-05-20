@@ -16,6 +16,7 @@ import org.godot.internal.dispatch.Dispatch;
 import org.godot.internal.ref.RefCountedHelper;
 import org.godot.math.Vector2;
 import org.godot.node.Control;
+import org.godot.node.InputEvent;
 import org.godot.node.Node;
 import org.godot.node.RefCounted;
 
@@ -403,9 +404,8 @@ public class IntegrationTestNode extends Node {
 	private boolean inputVirtualCalled = false;
 
 	@Override
-	public boolean _input(java.lang.Object event) {
+	public void _input(InputEvent event) {
 		inputVirtualCalled = true;
-		return true;
 	}
 
 	@GodotMethod

@@ -157,6 +157,7 @@ public class Main {
 
 		VirtualMethodGenerator.generate(classMap, outputDir, API_PACKAGE);
 		VirtualMethodIndexGenerator.generate(classMap, outputDir);
+		VirtualStubGenerator.generate(classMap, outputDir);
 
 		// Generate class registry for typed object wrapping
 		ClassRegistryGenerator.generate(classes, outputDir);
@@ -187,6 +188,7 @@ public class Main {
 				outputBase.resolve(bridgePackage).resolve("ApiSignatures.java"),
 				outputBase.resolve(apiPackage).resolve("VirtualMethods.java"),
 				outputBase.resolve(apiPackage).resolve("StructOffsets.java"),
+				outputBase.resolve("org/godot/VirtualStubs.java"),
 				outputBase.resolve(nodePackage).resolve("Object.java"),};
 
 		for (Path keyFile : keyFiles) {

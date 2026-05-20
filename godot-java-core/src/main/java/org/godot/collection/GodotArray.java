@@ -8,6 +8,8 @@ import org.godot.bridge.Bridge;
 import org.godot.internal.api.ApiIndex;
 import org.godot.internal.api.VariantType;
 import java.lang.foreign.MemorySegment;
+import java.lang.invoke.MethodHandle;
+import java.util.List;
 import static java.lang.foreign.ValueLayout.ADDRESS;
 import static java.lang.foreign.ValueLayout.JAVA_INT;
 
@@ -30,8 +32,7 @@ public class GodotArray<T> extends RefCounted {
 	private final OwnedVariant ownedVariant;
 
 	public GodotArray() {
-		super(0);
-		this.ownedVariant = null;
+		this(createEmptyVariant());
 	}
 
 	public GodotArray(long nativePtr) {
@@ -53,6 +54,23 @@ public class GodotArray<T> extends RefCounted {
 		this.ownedVariant = ownedVariant;
 	}
 
+	private static OwnedVariant createEmptyVariant() {
+		MemorySegment variant = Bridge.allocVariant();
+		MethodHandle ctor = Variant.getTypeConstructor(VariantType.ARRAY.id());
+		if (ctor == null) {
+			throw new IllegalStateException("Array Variant constructor is not available");
+		}
+		MemorySegment arrayData = Bridge.allocate(8);
+		try {
+			ctor.invoke(variant, arrayData);
+			return OwnedVariant.copyOf(variant);
+		} catch (Throwable t) {
+			throw new RuntimeException("Failed to create Godot Array", t);
+		} finally {
+			Bridge.destroyVariant(variant);
+		}
+	}
+
 	public static GodotArray<?> fromNative(long nativePtr) {
 		if (nativePtr == 0)
 			return null;
@@ -62,6 +80,23 @@ public class GodotArray<T> extends RefCounted {
 	public static GodotArray<?> fromOwnedVariant(MemorySegment variantSeg) {
 		OwnedVariant owned = OwnedVariant.copyOf(variantSeg);
 		return new GodotArray<>(owned);
+	}
+
+	@SafeVarargs
+	public static <T> GodotArray<T> of(T... values) {
+		GodotArray<T> array = new GodotArray<>();
+		for (T value : values) {
+			array.add(value);
+		}
+		return array;
+	}
+
+	public static <T> GodotArray<T> fromList(List<? extends T> values) {
+		GodotArray<T> array = new GodotArray<>();
+		for (T value : values) {
+			array.add(value);
+		}
+		return array;
 	}
 
 	/**

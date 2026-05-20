@@ -10,6 +10,7 @@ import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.Modifier;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
+import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import javax.tools.Diagnostic;
@@ -186,7 +187,11 @@ public class GodotClassProcessor extends AbstractProcessor {
 
 	private record FieldInfo(String javaName, String propertyName, String type, int hintId, String hintString,
 			int usage, String group, String groupHint, String subgroup, String subgroupHint, String getter,
-			String setter, boolean readOnly, String defaultValue) {
+			String setter, boolean readOnly, String defaultValue, CollectionTypeInfo collectionType) {
+	}
+
+	private record CollectionTypeInfo(String containerType, String elementType, String keyType, String valueType,
+			String elementClassName, String keyClassName, String valueClassName) {
 	}
 
 	private record SignalInfo(String javaName, String signalName, List<String> paramTypes, List<String> paramNames) {
@@ -343,7 +348,8 @@ public class GodotClassProcessor extends AbstractProcessor {
 					String defaultValue = ann != null ? ann.defaultValue() : "";
 					fields.add(new FieldInfo(field.getSimpleName().toString(), propName,
 							typeToDescriptor(field.asType()), hintId, hintString, usage, currentGroup, currentGroupHint,
-							currentSubgroup, currentSubgroupHint, getter, setter, readOnly, defaultValue));
+							currentSubgroup, currentSubgroupHint, getter, setter, readOnly, defaultValue,
+							collectionTypeInfo(field.asType())));
 				}
 				// Collect @OnReady fields
 				if (field.getAnnotation(org.godot.annotation.OnReady.class) != null) {
@@ -375,6 +381,64 @@ public class GodotClassProcessor extends AbstractProcessor {
 			case ARRAY, DECLARED -> type.toString();
 			default -> type.toString();
 		};
+	}
+
+	private CollectionTypeInfo collectionTypeInfo(TypeMirror type) {
+		if (!(type instanceof DeclaredType declared) || declared.getTypeArguments().isEmpty()) {
+			return null;
+		}
+		String rawType = declared.asElement().asType().toString();
+		if ("org.godot.collection.GodotArray<T>".equals(rawType)
+				|| rawType.startsWith("org.godot.collection.GodotArray")) {
+			TypeMirror elementType = declared.getTypeArguments().get(0);
+			return new CollectionTypeInfo("Array", variantTypeName(elementType), "", "", godotClassName(elementType),
+					"", "");
+		}
+		if ("org.godot.collection.GodotDictionary<K,V>".equals(rawType)
+				|| rawType.startsWith("org.godot.collection.GodotDictionary")) {
+			TypeMirror keyType = declared.getTypeArguments().get(0);
+			TypeMirror valueType = declared.getTypeArguments().get(1);
+			return new CollectionTypeInfo("Dictionary", "", variantTypeName(keyType), variantTypeName(valueType), "",
+					godotClassName(keyType), godotClassName(valueType));
+		}
+		return null;
+	}
+
+	private String variantTypeName(TypeMirror type) {
+		return switch (type.getKind()) {
+			case BOOLEAN -> "bool";
+			case BYTE, SHORT, INT, LONG -> "int";
+			case FLOAT, DOUBLE -> "float";
+			default -> {
+				String name = type.toString();
+				yield switch (name) {
+					case "java.lang.Boolean" -> "bool";
+					case "java.lang.Byte", "java.lang.Short", "java.lang.Integer", "java.lang.Long" -> "int";
+					case "java.lang.Float", "java.lang.Double" -> "float";
+					case "java.lang.String" -> "String";
+					case "org.godot.core.GodotStringName" -> "StringName";
+					case "org.godot.core.Rid" -> "RID";
+					case "org.godot.core.Callable" -> "Callable";
+					case "org.godot.core.Signal" -> "Signal";
+					case "org.godot.collection.GodotArray" -> "Array";
+					case "org.godot.collection.GodotDictionary" -> "Dictionary";
+					default -> simpleTypeName(name);
+				};
+			}
+		};
+	}
+
+	private String godotClassName(TypeMirror type) {
+		return isGodotSubclass(type) ? simpleTypeName(type.toString()) : "";
+	}
+
+	private String simpleTypeName(String typeName) {
+		int genericStart = typeName.indexOf('<');
+		if (genericStart >= 0) {
+			typeName = typeName.substring(0, genericStart);
+		}
+		int lastDot = typeName.lastIndexOf('.');
+		return lastDot >= 0 ? typeName.substring(lastDot + 1) : typeName;
 	}
 
 	private ParamTypeInfo categorizeParam(TypeMirror type) {
@@ -783,6 +847,7 @@ public class GodotClassProcessor extends AbstractProcessor {
 		w.write("import org.godot.core.Variant;\n");
 		w.write("import org.godot.core.VariantUtils;\n");
 		w.write("import org.godot.internal.dispatch.PropertyMeta;\n");
+		w.write("import org.godot.internal.dispatch.CollectionTypeMeta;\n");
 		w.write("import org.godot.internal.dispatch.MethodMeta;\n");
 		w.write("import org.godot.internal.dispatch.SignalMeta;\n");
 		w.write("import org.godot.internal.dispatch.DispatchAccessor;\n");
@@ -891,7 +956,8 @@ public class GodotClassProcessor extends AbstractProcessor {
 						+ escapeJava(f.hintString()) + "\"" + ", " + f.usage() + ", " + "\"" + escapeJava(f.getter())
 						+ "\"" + ", " + "\"" + escapeJava(f.setter()) + "\"" + ", " + f.readOnly() + ", " + "\""
 						+ escapeJava(f.group()) + "\"" + ", " + "\"" + escapeJava(f.groupHint()) + "\"" + ", " + "\""
-						+ escapeJava(f.subgroup()) + "\"" + ", " + "\"" + escapeJava(f.subgroupHint()) + "\"" + "),\n";
+						+ escapeJava(f.subgroup()) + "\"" + ", " + "\"" + escapeJava(f.subgroupHint()) + "\"" + ", "
+						+ collectionTypeExpression(f.collectionType()) + "),\n";
 				w.write(line);
 			}
 			w.write("        });\n");
@@ -1920,6 +1986,16 @@ public class GodotClassProcessor extends AbstractProcessor {
 			case "java.lang.String" -> "(String) " + expr;
 			default -> "(" + descriptor + ") " + expr;
 		};
+	}
+
+	private String collectionTypeExpression(CollectionTypeInfo info) {
+		if (info == null) {
+			return "null";
+		}
+		return "new CollectionTypeMeta(\"" + escapeJava(info.containerType()) + "\", \""
+				+ escapeJava(info.elementType()) + "\", \"" + escapeJava(info.keyType()) + "\", \""
+				+ escapeJava(info.valueType()) + "\", \"" + escapeJava(info.elementClassName()) + "\", \""
+				+ escapeJava(info.keyClassName()) + "\", \"" + escapeJava(info.valueClassName()) + "\")";
 	}
 
 	private String escapeJava(String s) {
