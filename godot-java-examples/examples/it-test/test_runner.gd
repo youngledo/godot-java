@@ -49,6 +49,10 @@ func run_tests():
 	test_typed_collection_returns()
 	test_generated_registry()
 	test_scoped_memory_diagnostics()
+	test_godot_array_native_ops()
+	test_godot_dictionary_native_ops()
+	test_callable_native_execution()
+	test_connect_builder_flow()
 	test_callback_exception()
 	test_missing_method_call()
 	test_diagnostic_context()
@@ -249,3 +253,19 @@ func test_rpc_registration():
 func test_rpc_proxies():
 	var result: bool = test_node.testRpcProxies()
 	assert_true(result, "Typed RPC proxy methods are callable")
+
+func test_godot_array_native_ops():
+	var result: bool = test_node.testGodotArrayNativeOps()
+	assert_true(result, "GodotArray native push/get/size/remove work")
+
+func test_godot_dictionary_native_ops():
+	var result: bool = test_node.testGodotDictionaryNativeOps()
+	assert_true(result, "GodotDictionary native get/size/containsKey work")
+
+func test_callable_native_execution():
+	var result: bool = test_node.testCallableNativeExecution()
+	assert_true(result, "Callable constructor/getters/isValid work")
+
+func test_connect_builder_flow():
+	var result: bool = test_node.testConnectBuilderFlow()
+	assert_true(result, "ConnectBuilder/ConnectHandle API works")

@@ -333,6 +333,43 @@ public class GodotIntegrationTest {
 				"JavaObjectMap cleanup should pass. Output:\n" + String.join("\n", outputLines));
 	}
 
+	// ----------------------------------------------------------------
+	// Test: GodotArray/GodotDictionary native operations
+	// ----------------------------------------------------------------
+
+	@Test
+	void testGodotArrayNativeOps() {
+		assumeTrue(godotAvailable, "Godot not available, skipping integration test");
+		assertTrue(hasMarker("PASS: GodotArray native operations verified"),
+				"GodotArray push/get/size/remove should pass. Output:\n" + String.join("\n", outputLines));
+	}
+
+	@Test
+	void testGodotDictionaryNativeOps() {
+		assumeTrue(godotAvailable, "Godot not available, skipping integration test");
+		assertTrue(hasMarker("PASS: GodotDictionary native operations verified"),
+				"GodotDictionary put/get/size/containsKey/remove should pass. Output:\n"
+						+ String.join("\n", outputLines));
+	}
+
+	// ----------------------------------------------------------------
+	// Test: Callable and ConnectBuilder native execution
+	// ----------------------------------------------------------------
+
+	@Test
+	void testCallableNativeExecution() {
+		assumeTrue(godotAvailable, "Godot not available, skipping integration test");
+		assertTrue(hasMarker("PASS: Callable constructor/getters/isValid verified"),
+				"Callable constructor/getters should pass. Output:\n" + String.join("\n", outputLines));
+	}
+
+	@Test
+	void testConnectBuilderFlow() {
+		assumeTrue(godotAvailable, "Godot not available, skipping integration test");
+		assertTrue(hasMarker("PASS: ConnectBuilder/ConnectHandle API verified"),
+				"ConnectBuilder/ConnectHandle API should pass. Output:\n" + String.join("\n", outputLines));
+	}
+
 	@Test
 	void testMemoryDiagnosticsRecorded() {
 		assumeTrue(godotAvailable, "Godot not available, skipping integration test");
