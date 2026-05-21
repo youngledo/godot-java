@@ -61,6 +61,7 @@ public class GodotArray<T> extends RefCounted {
 			throw new IllegalStateException("Array Variant constructor is not available");
 		}
 		MemorySegment arrayData = Bridge.allocate(8);
+		arrayData.fill((byte) 0);
 		try {
 			ctor.invoke(variant, arrayData);
 			return OwnedVariant.copyOf(variant);

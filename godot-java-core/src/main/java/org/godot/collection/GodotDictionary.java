@@ -57,6 +57,7 @@ public class GodotDictionary<K, V> extends RefCounted {
 			throw new IllegalStateException("Dictionary Variant constructor is not available");
 		}
 		MemorySegment dictionaryData = Bridge.allocate(8);
+		dictionaryData.fill((byte) 0);
 		try {
 			ctor.invoke(variant, dictionaryData);
 			return OwnedVariant.copyOf(variant);
