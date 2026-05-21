@@ -2,7 +2,6 @@ package org.godot.builtin;
 
 import org.godot.math.Plane;
 import org.godot.math.Vector3;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -11,7 +10,6 @@ import static org.junit.jupiter.api.Assertions.*;
  * Unit tests for Plane - Task 7.4. Tests intersection tests, containment
  * checks, and plane operations.
  */
-@Disabled("Math convention mismatch with Godot — tests assume Godot behavior, implementation uses different conventions. Needs review.")
 public class PlaneTest {
 
 	// ------------------------------------------------------------------------
