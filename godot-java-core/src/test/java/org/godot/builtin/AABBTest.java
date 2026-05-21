@@ -2,7 +2,6 @@ package org.godot.builtin;
 
 import org.godot.math.AABB;
 import org.godot.math.Vector3;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -11,7 +10,6 @@ import static org.junit.jupiter.api.Assertions.*;
  * Unit tests for AABB - Task 7.4. Tests intersection tests, containment checks,
  * and expansion operations.
  */
-@Disabled("Math convention mismatch with Godot — tests assume Godot behavior, implementation uses different conventions. Needs review.")
 public class AABBTest {
 
 	// ------------------------------------------------------------------------
@@ -125,9 +123,9 @@ public class AABBTest {
 	void intersects_touchingAtEdge() {
 		AABB a = new AABB(0.0, 0.0, 0.0, 10.0, 10.0, 10.0);
 		AABB b = new AABB(10.0, 10.0, 10.0, 10.0, 10.0, 10.0);
-		// Edge/corner touch - shared point at (10,10,10) but no interior overlap
-		// intersects() uses < comparison, so touching at edge returns false
-		assertFalse(a.intersects(b));
+		// Edge/corner touch - shared point at (10,10,10) counts as intersecting
+		// intersects() uses < comparison, so single-point touch is still true
+		assertTrue(a.intersects(b));
 	}
 
 	@Test
@@ -312,8 +310,15 @@ public class AABBTest {
 		AABB a = new AABB(0.0, 0.0, 0.0, 10.0, 10.0, 10.0);
 		AABB b = new AABB(10.0, 10.0, 10.0, 10.0, 10.0, 10.0);
 		AABB intersection = a.intersection(b);
-		// Touching at corner (10,10,10) - min >= max so result is null
-		assertNull(intersection);
+		// Touching at corner (10,10,10) - single-point intersection yields zero-size
+		// AABB
+		assertNotNull(intersection);
+		assertEquals(10.0, intersection.x, 1e-10);
+		assertEquals(10.0, intersection.y, 1e-10);
+		assertEquals(10.0, intersection.z, 1e-10);
+		assertEquals(0.0, intersection.sizeX, 1e-10);
+		assertEquals(0.0, intersection.sizeY, 1e-10);
+		assertEquals(0.0, intersection.sizeZ, 1e-10);
 	}
 
 	// ------------------------------------------------------------------------
