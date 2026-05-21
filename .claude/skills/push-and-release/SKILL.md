@@ -77,8 +77,37 @@ Two modes: push-only vs full release. Shared CI monitoring and failure handling.
    ```
    gh release view v<revision> --json assets --jq '.assets[].name'
    ```
-3. Update downstream repositories (see below).
-4. Report final status to user.
+3. Generate and update release notes (see below).
+4. Update downstream repositories (see below).
+5. Report final status to user.
+
+### Release Notes Generation
+
+After each release, update the GitHub Release with a proper changelog:
+
+1. Find the previous release tag:
+   ```
+   gh release list --limit 2 --json tagName --jq '.[1].tagName'
+   ```
+   If no previous tag exists, use the initial commit.
+
+2. Collect all commits since the previous release:
+   ```
+   git log <prev-tag>..v<version> --oneline
+   ```
+
+3. Write release notes organized into sections:
+   - **Highlights** — the 3-5 most impactful changes (new features, breaking changes)
+   - **Features** — all `feat:` commits, summarized concisely
+   - **Bug Fixes** — all `fix:` commits, summarized concisely
+   - **Migration from X.Y.Z** — any breaking changes or important notes for users upgrading
+
+4. Update the GitHub Release:
+   ```
+   gh release edit v<version> --notes-file - <<'EOF'
+   ... release notes content ...
+   EOF
+   ```
 
 ## Downstream Repositories
 
