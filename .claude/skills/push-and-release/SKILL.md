@@ -16,21 +16,15 @@ Two modes: push-only vs full release. Shared CI monitoring and failure handling.
 ## Mode Selection
 
 - User says "推送代码" or "push code" → **Push mode** (Step 1 → Step 2 → done)
-- User says "发布版本" or "release version" → **Release mode** (Step 0 → Step 1 → Step 2 → Step 3 → Step 4 → Step 5 → done)
+- User says "发布版本" or "release version" → **Release mode** (Step 1 → Step 2 → Step 3 → Step 4 → Step 5 → done)
 
 ## Prerequisites
 
 - Working directory must be the godot-java project root
 - `gh` CLI authenticated with push access
 - Clean git working tree or user-approved changes
-
-## Step 0: Prepare Release Version (Release mode only)
-
-1. Read `<revision>` from `pom.xml`.
-2. If it ends with `-SNAPSHOT`, strip the suffix (e.g. `0.4.1-SNAPSHOT` → `0.4.1`).
-   Update `pom.xml` with the stripped version.
-3. Commit: `git commit -m "Bump revision to <version>"`
-4. This commit will be pushed in Step 1.
+- Release version is specified by the user (e.g., "发布版本 0.6.0"). The release workflow
+  overrides the version via `-Drevision` from the tag name — do NOT manually edit `pom.xml`.
 
 ## Step 1: Push
 
@@ -53,11 +47,11 @@ Two modes: push-only vs full release. Shared CI monitoring and failure handling.
 
 ## Step 3: Tag and Trigger Release (Release mode only)
 
-1. Read `<revision>` from `pom.xml` — this is the release version.
+1. Use the version specified by the user (e.g., "0.6.0").
 2. Create and push the tag:
    ```
-   git tag v<revision>
-   git push origin v<revision>
+   git tag v<version>
+   git push origin v<version>
    ```
 3. This triggers the "Release to Maven Central" workflow.
 
