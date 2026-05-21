@@ -54,6 +54,19 @@ typedef struct {
     GDExtensionDeinitializeCallback deinitialize;
 } GDExtensionInitialization;
 
+// MainLoop callbacks (API 4.5+)
+typedef void (*GDExtensionMainLoopCallback)();
+
+typedef struct {
+    GDExtensionMainLoopCallback startup_func;
+    GDExtensionMainLoopCallback shutdown_func;
+    GDExtensionMainLoopCallback frame_func;
+} GDExtensionMainLoopCallbacks;
+
+typedef void (*GDExtensionInterfaceRegisterMainLoopCallbacks)(
+    GDExtensionClassLibraryPtr p_library,
+    const GDExtensionMainLoopCallbacks* p_callbacks);
+
 typedef void (*GDExtensionInterfaceFunctionPtr)();
 typedef GDExtensionInterfaceFunctionPtr (*GDExtensionInterfaceGetProcAddress)(const char *p_function_name);
 typedef GDExtensionBool (*GDExtensionInitializationFunction)(
@@ -809,12 +822,78 @@ static void init_crash_handler() {
 }
 
 // ---------------------------------------------------------------------------
+// MainLoop callbacks (API 4.5+) — delegate to Java Bootstrap
+// ---------------------------------------------------------------------------
+
+static void main_loop_startup_callback() {
+    if (!g_jni_env) return;
+    JNIEnv* env = g_jni_env;
+    jclass cls = env->FindClass("org/godot/bootstrap/Bootstrap");
+    if (!cls) return;
+    jmethodID mid = env->GetStaticMethodID(cls, "onMainLoopStartup", "()V");
+    if (mid) {
+        env->CallStaticVoidMethod(cls, mid);
+        if (env->ExceptionOccurred()) {
+            env->ExceptionDescribe();
+            env->ExceptionClear();
+        }
+    }
+}
+
+static void main_loop_frame_callback() {
+    if (!g_jni_env) return;
+    JNIEnv* env = g_jni_env;
+    jclass cls = env->FindClass("org/godot/bootstrap/Bootstrap");
+    if (!cls) return;
+    jmethodID mid = env->GetStaticMethodID(cls, "onMainLoopFrame", "()V");
+    if (mid) {
+        env->CallStaticVoidMethod(cls, mid);
+        if (env->ExceptionOccurred()) {
+            env->ExceptionDescribe();
+            env->ExceptionClear();
+        }
+    }
+}
+
+static void main_loop_shutdown_callback() {
+    if (!g_jni_env) return;
+    JNIEnv* env = g_jni_env;
+    jclass cls = env->FindClass("org/godot/bootstrap/Bootstrap");
+    if (!cls) return;
+    jmethodID mid = env->GetStaticMethodID(cls, "onMainLoopShutdown", "()V");
+    if (mid) {
+        env->CallStaticVoidMethod(cls, mid);
+        if (env->ExceptionOccurred()) {
+            env->ExceptionDescribe();
+            env->ExceptionClear();
+        }
+    }
+}
+
+// Global MainLoop callbacks struct (must outlive registration)
+static GDExtensionMainLoopCallbacks g_main_loop_callbacks = {
+    main_loop_startup_callback,
+    main_loop_shutdown_callback,
+    main_loop_frame_callback
+};
+
+// ---------------------------------------------------------------------------
 // GDExtension initialization/deinitialization callbacks
 // ---------------------------------------------------------------------------
 
 static void godot_java_initialize(void *userdata, GDExtensionInitializationLevel p_level) {
     std::cout << "godot-java: initialize level " << p_level << std::endl;
     std::cout.flush();
+
+    // Register MainLoop callbacks at CORE level (API 4.5+)
+    if (p_level == GDEXTENSION_INITIALIZATION_CORE && g_get_proc_address) {
+        auto register_fn = (GDExtensionInterfaceRegisterMainLoopCallbacks)
+            g_get_proc_address("register_main_loop_callbacks");
+        if (register_fn) {
+            register_fn(g_library, &g_main_loop_callbacks);
+            std::cout << "godot-java: MainLoop callbacks registered (API 4.5+)" << std::endl;
+        }
+    }
 
     // Register extension classes for each level
     if (g_jni_env) {

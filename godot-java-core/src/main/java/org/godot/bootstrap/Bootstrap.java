@@ -171,6 +171,54 @@ public final class Bootstrap {
 		logger.warn("Hot reload enabled but no user JAR found on classpath");
 	}
 
+	// ------------------------------------------------------------------
+	// MainLoop lifecycle hooks (API 4.5+)
+	// ------------------------------------------------------------------
+
+	/**
+	 * Listener invoked on every process frame. Set via setMainLoopFrameListener.
+	 */
+	private static volatile Runnable mainLoopFrameListener;
+
+	/**
+	 * Set a listener that is invoked on every process frame (API 4.5+).
+	 *
+	 * <p>
+	 * This is called after all Node._process() methods, before Godot-internal
+	 * ScriptServer::frame(). Useful for per-frame extension logic without requiring
+	 * a Node subclass.
+	 */
+	public static void setMainLoopFrameListener(Runnable listener) {
+		mainLoopFrameListener = listener;
+	}
+
+	/**
+	 * Called by C++ when the main loop starts (after full Godot initialization).
+	 */
+	public static void onMainLoopStartup() {
+		logger.info("MainLoop started.");
+	}
+
+	/**
+	 * Called by C++ on every process frame. Invokes the registered frame listener.
+	 */
+	public static void onMainLoopFrame() {
+		Runnable listener = mainLoopFrameListener;
+		if (listener != null) {
+			try {
+				listener.run();
+			} catch (Throwable t) {
+				logger.error("MainLoop frame listener threw exception", t);
+			}
+		}
+	}
+
+	/** Called by C++ when the main loop shuts down. */
+	public static void onMainLoopShutdown() {
+		logger.info("MainLoop shutdown.");
+		mainLoopFrameListener = null;
+	}
+
 	// ------------------------------------------------------------------------
 	// JNI native methods
 	// ------------------------------------------------------------------------

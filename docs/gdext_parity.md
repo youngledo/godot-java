@@ -11,7 +11,7 @@ metadata:
 
 Last compared: 2026-05-20 against gdext (godot-rust/gdext) latest.
 
-## Fully Aligned (23/25 areas)
+## Fully Aligned (25/25 areas)
 
 | Area | gdext | godot-java | Commit |
 |------|-------|------------|--------|
@@ -30,9 +30,10 @@ Last compared: 2026-05-20 against gdext (godot-rust/gdext) latest.
 | Lambda callable | `from_fn(closure)` | `registerLambdaCallable(Runnable)` | 1e2a28b |
 | Collections | `Array<T>` + `Dictionary<K,V>` | `GodotArray<T>` + `GodotDictionary<K,V>` | 933fade |
 | Collection type metadata | Element trait | CollectionTypeMeta | 933fade |
-| PackedArray support | All 10 types | All 10 types including PackedVector4Array | 05f9404 |
-| Resource loading | `load::<T>()` | `Resources.load()` | 7209db0 |
-| InitLevel per-level registration | `on_stage_init(level)` | `registerClassesAtLevel(level)` | 2458ba0 |
+| PackedArray type support | All 10 types | All 10 types including PackedVector4Array | 05f9404 |
+| PackedArray rich API | `PackedArray<T>` with methods | `GodotPackedByteArray` + 9 typed wrappers via VARIANT_CALL | pending |
+| MainLoop callbacks (4.5+) | `GDExtensionMainLoopCallbacks` | C++ registers callbacks → Java Bootstrap hooks | pending |
+| InitLevel per-level registration | `on_stage_init(level)` | `registerClassesAtLevel(level)` | 5aae229 |
 | Docs generation | register-docs feature | DocConverter + markdown-to-bbcode | initial |
 | Code generation | godot-codegen crate | godot-java-code-generator | 5d2fef4 |
 | Godot version metadata | GdextRuntimeMetadata | GodotApiVersion | 5d2fef4 |
@@ -47,12 +48,15 @@ Last compared: 2026-05-20 against gdext (godot-rust/gdext) latest.
 ## No Remaining Gaps
 
 All previously identified gaps have been closed:
-- Typed async signal return: `TypedSignal1<A>.await()` returns typed A; 2+ args return `Object[]`
-- PackedVector4Array: Full support in TypeMapper, TypedAbiModel, engine calls, typed arg wrappers
-- InitLevel per-level: C++ minimum level set to CORE, classes grouped and registered per level
+- **PackedArray rich API**: Created `GodotPackedArray<T>` base class + 10 typed wrappers (`GodotPackedByteArray`, `GodotPackedInt32Array`, etc.) with VARIANT_CALL methods: `get`, `set`, `pushBack`, `insert`, `removeAt`, `fill`, `resize`, `clear`, `sort`, `reverse`, `contains`, `count`, `find`, `rfind`, `subarray`, `toJavaArray`, `appendArray`. `GodotPackedByteArray` additionally has `encode*`, `decode*`, `compress`, `decompress`, `toFloat32Array`, `toInt32Array`, etc.
+- **MainLoop callbacks (API 4.5+)**: C++ registers `GDExtensionMainLoopCallbacks` at CORE init level. Java `Bootstrap` exposes `onMainLoopStartup()`, `onMainLoopFrame()`, `onMainLoopShutdown()` hooks + `setMainLoopFrameListener(Runnable)` for user-defined per-frame logic.
+- **InitLevel per-level**: C++ minimum level set to CORE, classes grouped and registered per level
+- **Typed async signal return**: `TypedSignal1<A>.await()` returns typed A; 2+ args return `Object[]`
+- **PackedVector4Array**: Full support in TypeMapper, TypedAbiModel, engine calls, typed arg wrappers
 
 ## Java-Only Advantages (not in gdext)
 - Virtual Thread coroutines (`GodotScope`) — lighter than gdext's `spawn()`
 - JMH benchmark module for performance regression detection
 - Maven profile system for compile-time feature switching
 - TypedSignal0-5 with await() and emit() — gdext only has emit on its signal types
+- `@RequiredInEditor` annotation — gdext requires manual `_get_configuration_warnings`
