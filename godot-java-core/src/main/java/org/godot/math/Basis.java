@@ -112,16 +112,16 @@ public final class Basis {
 
 		// R_z(ez) * R_x(ex) * R_y(ey) — column-major
 		// Column 0 (xx, xy, xz):
-		double c0x = cz * cy + sz * sx * sy;
-		double c0y = sz * cy - cz * sx * sy;
-		double c0z = cx * sy;
+		double c0x = cz * cy - sz * sx * sy;
+		double c0y = sz * cy + cz * sx * sy;
+		double c0z = -cx * sy;
 		// Column 1 (yx, yy, yz):
 		double c1x = -sz * cx;
 		double c1y = cz * cx;
-		double c1z = -sx;
+		double c1z = sx;
 		// Column 2 (zx, zy, zz):
-		double c2x = -cz * sy + sz * sx * cy;
-		double c2y = -sz * sy - cz * sx * cy;
+		double c2x = cz * sy + sz * sx * cy;
+		double c2y = sz * sy - cz * sx * cy;
 		double c2z = cx * cy;
 
 		return new Basis(c0x, c0y, c0z, c1x, c1y, c1z, c2x, c2y, c2z);
@@ -256,17 +256,18 @@ public final class Basis {
 	 */
 	public Vector3 toEuler() {
 		// YXZ order (Godot default)
-		double sy = Math.sqrt(zx * zx + zy * zy);
+		// YXZ decomposition: extract ex, ey, ez from R_z * R_x * R_y
+		double sy = Math.sqrt(xz * xz + zz * zz);
 		boolean singular = sy < 1e-6;
 		double ex, ey, ez;
 		if (singular) {
 			ez = Math.atan2(-yx, xx);
-			ex = Math.atan2(zx, zz);
+			ex = Math.atan2(yz, sy);
 			ey = 0;
 		} else {
-			ez = Math.atan2(zy, zx);
-			ex = Math.atan2(yz, yy);
-			ey = Math.atan2(-zy, sy);
+			ex = Math.atan2(yz, sy);
+			ey = Math.atan2(-xz, zz);
+			ez = Math.atan2(-yx, yy);
 		}
 		return new Vector3(ex, ey, ez);
 	}

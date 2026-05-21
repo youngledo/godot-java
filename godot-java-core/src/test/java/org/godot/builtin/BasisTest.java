@@ -3,7 +3,6 @@ package org.godot.builtin;
 import org.godot.math.Basis;
 import org.godot.math.Quaternion;
 import org.godot.math.Vector3;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -12,7 +11,6 @@ import static org.junit.jupiter.api.Assertions.*;
  * Unit tests for Basis - Task 7.3. Tests construction from Euler angles, matrix
  * conversion, and transpose.
  */
-@Disabled("Math convention mismatch with Godot — tests assume Godot behavior, implementation uses different conventions. Needs review.")
 public class BasisTest {
 
 	// ------------------------------------------------------------------------
@@ -59,24 +57,24 @@ public class BasisTest {
 		assertEquals(1.0, xAxis.x, 1e-10);
 		assertEquals(0.0, xAxis.y, 1e-10);
 		assertEquals(0.0, xAxis.z, 1e-10);
-		// (0,1,0) -> (0,0,1)
+		// (0,1,0) -> (0,0,-1) [clockwise around X]
 		Vector3 yAxis = b.apply(Vector3.UP);
 		assertEquals(0.0, yAxis.x, 1e-10);
 		assertEquals(0.0, yAxis.y, 1e-10);
-		assertEquals(1.0, yAxis.z, 1e-10);
+		assertEquals(-1.0, yAxis.z, 1e-10);
 	}
 
 	@Test
 	void fromAxisAngleY_90Degrees() {
 		Basis b = Basis.fromAxisAngleY(Math.PI / 2);
-		// (1,0,0) -> (0,0,-1)
+		// (1,0,0) -> (0,0,1) [clockwise around Y]
 		Vector3 xAxis = b.apply(Vector3.RIGHT);
 		assertEquals(0.0, xAxis.x, 1e-10);
 		assertEquals(0.0, xAxis.y, 1e-10);
-		assertEquals(-1.0, xAxis.z, 1e-10);
-		// (0,0,1) -> (1,0,0)
+		assertEquals(1.0, xAxis.z, 1e-10);
+		// (0,0,1) -> (-1,0,0)
 		Vector3 zAxis = b.apply(Vector3.BACK);
-		assertEquals(1.0, zAxis.x, 1e-10);
+		assertEquals(-1.0, zAxis.x, 1e-10);
 		assertEquals(0.0, zAxis.y, 1e-10);
 		assertEquals(0.0, zAxis.z, 1e-10);
 	}
@@ -89,9 +87,9 @@ public class BasisTest {
 		assertEquals(0.0, xAxis.x, 1e-10);
 		assertEquals(-1.0, xAxis.y, 1e-10);
 		assertEquals(0.0, xAxis.z, 1e-10);
-		// (0,1,0) -> (-1,0,0)
+		// (0,1,0) -> (1,0,0) [clockwise around Z]
 		Vector3 yAxis = b.apply(Vector3.UP);
-		assertEquals(-1.0, yAxis.x, 1e-10);
+		assertEquals(1.0, yAxis.x, 1e-10);
 		assertEquals(0.0, yAxis.y, 1e-10);
 		assertEquals(0.0, yAxis.z, 1e-10);
 	}
@@ -287,7 +285,7 @@ public class BasisTest {
 		Vector3 v = new Vector3(1.0, 0.0, 0.0);
 		Vector3 result = b.apply(v);
 		assertEquals(0.0, result.x, 1e-6);
-		assertEquals(1.0, result.y, 1e-6);
+		assertEquals(-1.0, result.y, 1e-6);
 		assertEquals(0.0, result.z, 1e-6);
 	}
 
