@@ -149,9 +149,9 @@ public final class Transform2D {
 		// R^-1 = (1/det) * [y.y, -y.x; -x.y, x.x]
 		Vector2 newX = new Vector2(invDet * y.y, -invDet * x.y);
 		Vector2 newY = new Vector2(-invDet * y.x, invDet * x.x);
-		// -R^-1 * t
-		double ox = -(newX.x * origin.x + newX.y * origin.y);
-		double oy = -(newY.x * origin.x + newY.y * origin.y);
+		// -R^-1 * t (using row elements of R^-1 for matrix-vector multiply)
+		double ox = -(newX.x * origin.x + newY.x * origin.y);
+		double oy = -(newX.y * origin.x + newY.y * origin.y);
 		return new Transform2D(newX, newY, new Vector2(ox, oy));
 	}
 
