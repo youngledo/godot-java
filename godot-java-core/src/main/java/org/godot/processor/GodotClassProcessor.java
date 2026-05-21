@@ -81,6 +81,9 @@ public class GodotClassProcessor extends AbstractProcessor {
 			for (Element element : roundEnv.getElementsAnnotatedWith(annotation)) {
 				if (element instanceof TypeElement typeElement) {
 					String fqn = typeElement.getQualifiedName().toString();
+					if (discoveredClasses.stream().anyMatch(e -> e.fqn().equals(fqn))) {
+						continue;
+					}
 					try {
 						var anno = element.getAnnotation(org.godot.annotation.GodotClass.class);
 						if (anno != null) {
