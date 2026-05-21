@@ -2,7 +2,6 @@ package org.godot.builtin;
 
 import org.godot.math.Quaternion;
 import org.godot.math.Vector3;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -11,7 +10,6 @@ import static org.junit.jupiter.api.Assertions.*;
  * Unit tests for Quaternion - Task 7.3. Tests construction from Euler angles,
  * matrix conversion, and slerp.
  */
-@Disabled("Math convention mismatch with Godot — tests assume Godot behavior, implementation uses different conventions. Needs review.")
 public class QuaternionTest {
 
 	// ------------------------------------------------------------------------
