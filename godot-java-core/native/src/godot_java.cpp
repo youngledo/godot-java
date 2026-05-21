@@ -907,18 +907,19 @@ static void godot_java_initialize(void *userdata, GDExtensionInitializationLevel
     std::cout << "godot-java: initialize level " << p_level << std::endl;
     std::cout.flush();
 
+    // TODO: Re-enable after export-mode crash is diagnosed
     // Register MainLoop callbacks at CORE level (API 4.5+)
-    if (p_level == GDEXTENSION_INITIALIZATION_CORE && g_get_proc_address) {
-        cache_main_loop_jni_refs();
-        if (g_bootstrap_global_ref) {
-            auto register_fn = (GDExtensionInterfaceRegisterMainLoopCallbacks)
-                g_get_proc_address("register_main_loop_callbacks");
-            if (register_fn) {
-                register_fn(g_library, &g_main_loop_callbacks);
-                std::cout << "godot-java: MainLoop callbacks registered (API 4.5+)" << std::endl;
-            }
-        }
-    }
+    // if (p_level == GDEXTENSION_INITIALIZATION_CORE && g_get_proc_address) {
+    //     cache_main_loop_jni_refs();
+    //     if (g_bootstrap_global_ref) {
+    //         auto register_fn = (GDExtensionInterfaceRegisterMainLoopCallbacks)
+    //             g_get_proc_address("register_main_loop_callbacks");
+    //         if (register_fn) {
+    //             register_fn(g_library, &g_main_loop_callbacks);
+    //             std::cout << "godot-java: MainLoop callbacks registered (API 4.5+)" << std::endl;
+    //         }
+    //     }
+    // }
 
     // Register extension classes for each level
     if (g_jni_env) {
