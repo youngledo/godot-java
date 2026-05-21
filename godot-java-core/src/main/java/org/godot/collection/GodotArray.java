@@ -8,7 +8,6 @@ import org.godot.bridge.Bridge;
 import org.godot.internal.api.ApiIndex;
 import org.godot.internal.api.VariantType;
 import java.lang.foreign.MemorySegment;
-import java.lang.invoke.MethodHandle;
 import java.util.List;
 import static java.lang.foreign.ValueLayout.ADDRESS;
 import static java.lang.foreign.ValueLayout.JAVA_INT;
@@ -32,7 +31,8 @@ public class GodotArray<T> extends RefCounted {
 	private final OwnedVariant ownedVariant;
 
 	public GodotArray() {
-		this(createEmptyVariant());
+		super(0);
+		this.ownedVariant = null;
 	}
 
 	public GodotArray(long nativePtr) {
@@ -52,24 +52,6 @@ public class GodotArray<T> extends RefCounted {
 	private GodotArray(OwnedVariant ownedVariant) {
 		super(ownedVariant.segment().get(ADDRESS, 8));
 		this.ownedVariant = ownedVariant;
-	}
-
-	private static OwnedVariant createEmptyVariant() {
-		MemorySegment variant = Bridge.allocVariant();
-		MethodHandle ctor = Variant.getTypeConstructor(VariantType.ARRAY.id());
-		if (ctor == null) {
-			throw new IllegalStateException("Array Variant constructor is not available");
-		}
-		MemorySegment arrayData = Bridge.allocate(8);
-		arrayData.fill((byte) 0);
-		try {
-			ctor.invoke(variant, arrayData);
-			return OwnedVariant.copyOf(variant);
-		} catch (Throwable t) {
-			throw new RuntimeException("Failed to create Godot Array", t);
-		} finally {
-			Bridge.destroyVariant(variant);
-		}
 	}
 
 	public static GodotArray<?> fromNative(long nativePtr) {

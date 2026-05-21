@@ -6,9 +6,7 @@ import org.godot.core.Variant;
 import org.godot.core.VariantUtils;
 import org.godot.bridge.Bridge;
 import org.godot.internal.api.ApiIndex;
-import org.godot.internal.api.VariantType;
 import java.lang.foreign.MemorySegment;
-import java.lang.invoke.MethodHandle;
 import java.util.Map;
 import static java.lang.foreign.ValueLayout.ADDRESS;
 
@@ -39,33 +37,16 @@ public class GodotDictionary<K, V> extends RefCounted {
 	}
 
 	/**
-	 * Create an empty Dictionary wrapper (invalid).
+	 * Create an empty Dictionary wrapper (invalid until assigned).
 	 */
 	public GodotDictionary() {
-		this(createEmptyVariant());
+		super(0);
+		this.ownedVariant = null;
 	}
 
 	private GodotDictionary(OwnedVariant ownedVariant) {
 		super(ownedVariant.segment().get(ADDRESS, 8).address());
 		this.ownedVariant = ownedVariant;
-	}
-
-	private static OwnedVariant createEmptyVariant() {
-		MemorySegment variant = Bridge.allocVariant();
-		MethodHandle ctor = Variant.getTypeConstructor(VariantType.DICTIONARY.id());
-		if (ctor == null) {
-			throw new IllegalStateException("Dictionary Variant constructor is not available");
-		}
-		MemorySegment dictionaryData = Bridge.allocate(8);
-		dictionaryData.fill((byte) 0);
-		try {
-			ctor.invoke(variant, dictionaryData);
-			return OwnedVariant.copyOf(variant);
-		} catch (Throwable t) {
-			throw new RuntimeException("Failed to create Godot Dictionary", t);
-		} finally {
-			Bridge.destroyVariant(variant);
-		}
 	}
 
 	public static GodotDictionary<?, ?> fromOwnedVariant(MemorySegment variantSeg) {
