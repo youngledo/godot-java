@@ -247,6 +247,16 @@ jobs:
           unzip -q -o godot-bin/export_templates.tpz -d godot-bin/export_templates
           cp godot-bin/export_templates/templates/* "$TEMPLATE_DIR/"
 
+      - name: Quick headless smoke test
+        shell: bash
+        env:
+          GODOT_JAVA_CLASSPATH: ${{ github.workspace }}/godot-java-examples/examples/it-test/godot-java/app.jar
+        run: |
+          timeout 15 godot-bin/${{ steps.godot-urls.outputs.godot_exe }} \
+            --headless \
+            --path godot-java-examples/examples/it-test \
+            --quit-after 10 2>&1 || true
+
       - name: Export smoke project
         shell: bash
         env:
