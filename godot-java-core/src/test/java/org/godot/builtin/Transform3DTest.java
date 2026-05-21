@@ -3,7 +3,6 @@ package org.godot.builtin;
 import org.godot.math.Basis;
 import org.godot.math.Transform3D;
 import org.godot.math.Vector3;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -12,7 +11,6 @@ import static org.junit.jupiter.api.Assertions.*;
  * Unit tests for Transform3D - Task 7.2. Tests construction, inverse,
  * multiplication, and basis extraction.
  */
-@Disabled("Math convention mismatch with Godot — tests assume Godot behavior, implementation uses different conventions. Needs review.")
 public class Transform3DTest {
 
 	// ------------------------------------------------------------------------
@@ -96,12 +94,12 @@ public class Transform3DTest {
 	void rotated_createsRotationAroundAxis() {
 		// Rotate 90 degrees around Y axis
 		Transform3D t = Transform3D.rotated(Vector3.UP, Math.PI / 2);
-		// (1, 0, 0) should become (0, 0, -1)
+		// (1, 0, 0) should become (0, 0, 1) — clockwise convention
 		Vector3 v = new Vector3(1.0, 0.0, 0.0);
 		Vector3 result = t.apply(v);
 		assertEquals(0.0, result.x, 1e-6);
 		assertEquals(0.0, result.y, 1e-6);
-		assertEquals(-1.0, result.z, 1e-6);
+		assertEquals(1.0, result.z, 1e-6);
 	}
 
 	// ------------------------------------------------------------------------
@@ -170,11 +168,12 @@ public class Transform3DTest {
 		Transform3D t1 = Transform3D.translated(new Vector3(5.0, 0.0, 0.0));
 		Transform3D t2 = Transform3D.rotated(Vector3.UP, Math.PI / 2);
 		Transform3D combined = t1.multiply(t2);
-		// Apply to (1, 0, 0): first rotate -> (0, 0, -1), then translate -> (5, 0, -1)
+		// Apply to (1, 0, 0): first rotate -> (0, 0, 1) (clockwise), then translate ->
+		// (5, 0, 1)
 		Vector3 result = combined.apply(new Vector3(1.0, 0.0, 0.0));
 		assertEquals(5.0, result.x, 1e-6);
 		assertEquals(0.0, result.y, 1e-6);
-		assertEquals(-1.0, result.z, 1e-6);
+		assertEquals(1.0, result.z, 1e-6);
 	}
 
 	// ------------------------------------------------------------------------
