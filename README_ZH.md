@@ -203,7 +203,7 @@ Demo 与示例项目：
 
 | | 集成方式 | FFI 层 | 虚方法 | ptrcall | 用户门槛 | 成熟度   |
 |---|---|---|---|---|---|-------|
-| **godot-java** | GDExtension | Panama FFI (Java 25) | 全部 1144 个 | 支持 | 低（无需重编译引擎） | Alpha |
+| **godot-java** | GDExtension | Panama FFI (Java 25) | 全部 | 支持 | 低（无需重编译引擎） | Alpha |
 | **[godot-rust/gdext](https://github.com/godot-rust/gdext)** | GDExtension | Rust FFI | 全部支持 | 支持 | 低（无需重编译引擎） | 稳定    |
 | **[graphics.gd (Go)](https://github.com/quaadgras/graphics.gd)** | GDExtension | CGO | 支持 | — | 低（无需重编译引擎） | 社区维护  |
 | **[godot-kotlin-jvm](https://github.com/utopia-rise/godot-kotlin-jvm)** | 引擎模块 | JNI | 全部支持 | 支持 | **高（需要重编译 Godot）** | 稳定    |
@@ -219,7 +219,7 @@ Demo 与示例项目：
 
 ### 对 godot-java 的影响
 
-godot-java 选择了 GDExtension 路线。支持全部 1144 个虚方法（从 `extension_api.json` 自动扫描）。分派架构对齐 gdext（Rust 绑定）：upcall stub 在类注册时按需创建，仅为用户实际 override 的方法创建 stub。未实现的方法返回 NULL，由 Godot 使用默认 C++ 实现。
+godot-java 选择了 GDExtension 路线。支持全部虚方法（从 `extension_api.json` 自动扫描）。分派架构对齐 gdext（Rust 绑定）：upcall stub 在类注册时按需创建，仅为用户实际 override 的方法创建 stub。未实现的方法返回 NULL，由 Godot 使用默认 C++ 实现。
 
 如果你熟悉 gdext：godot-java 的架构目标与其相似，只是用 Java 替代了 Rust，用 Panama FFI 替代了 Rust 原生 FFI。
 
@@ -269,7 +269,7 @@ godot-java/
 │   │   ├── core/                    #   Variant, StringName, GodotString, Callable…
 │   │   ├── collection/              #   GodotArray, GodotDictionary
 │   │   ├── math/                    #   Vector2/Vector3, Transform2D/3D…
-│   │   ├── node/                    #   1016 个生成的节点封装（Node, Node2D, Control…）
+│   │   ├── node/                    #   节点封装（Node, Node2D, Control…）
 │   │   ├── internal/api/            #   自动生成：ApiIndex, ApiSignatures, VariantType, VirtualMethods…
 │   │   └── registration/            #   注解扫描与类注册
 │   └── src/test/java/               #   单元测试
@@ -307,7 +307,7 @@ godot-java/
 该脚本会：
 1. 从 godot-cpp 下载新版本的 `extension_api.json` 和 `gdextension_interface.json`
 2. 重新运行代码生成器，自动更新：
-   - **ApiIndex.java** — 176 个 API 函数索引
+   - **ApiIndex.java** — API 函数索引
    - **ApiSignatures.java** — 每个函数的 Panama FunctionDescriptor
    - **VariantType.java** — Variant 类型枚举
    - **StructOffsets.java** — C 结构体字段偏移量
