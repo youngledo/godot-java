@@ -226,7 +226,7 @@ There are several ways to bring other languages into Godot. Here is how godot-ja
 
 | | Integration | FFI | Virtual methods | ptrcall | Barrier to entry | Maturity  |
 |---|---|---|---|---|---|-----------|
-| **godot-java** | GDExtension | Panama FFI (Java 25) | All 1144 | Supported | Low (no engine recompile) | Alpha     |
+| **godot-java** | GDExtension | Panama FFI (Java 25) | All | Supported | Low (no engine recompile) | Alpha     |
 | **[godot-rust/gdext](https://github.com/godot-rust/gdext)** | GDExtension | Rust FFI | All supported | Supported | Low (no engine recompile) | Stable    |
 | **[graphics.gd (Go)](https://github.com/quaadgras/graphics.gd)** | GDExtension | CGO | Supported | — | Low (no engine recompile) | Community |
 | **[godot-kotlin-jvm](https://github.com/utopia-rise/godot-kotlin-jvm)** | Engine module | JNI | All supported | Supported | **High (requires recompiling Godot)** | Stable    |
@@ -289,14 +289,14 @@ godot-java/
 │   │   ├── core/                    #   Variant, StringName, GodotString, Callable…
 │   │   ├── collection/              #   GodotArray, GodotDictionary
 │   │   ├── math/                    #   Vector2/Vector3, Transform2D/3D…
-│   │   ├── node/                    #   1016 generated node wrappers (Node, Node2D, Control…)
+│   │   ├── node/                    #   node wrappers (Node, Node2D, Control…)
 │   │   ├── internal/api/            #   Auto-generated: ApiIndex, ApiSignatures, VariantType, VirtualMethods…
 │   │   └── registration/            #   Annotation scanning & class registration
 │   └── src/test/java/               #   Unit tests
 ├── godot-java-code-generator/       # Code generator (from Godot API JSON)
 │   └── src/main/java/com/godot/codegen/
 │       ├── Main.java                #   Entry point
-│       ├── ApiIndexGenerator.java   #   176 API function indices
+│       ├── ApiIndexGenerator.java   #   API function indices
 │       ├── ApiSignaturesGenerator.java # Panama FunctionDescriptors
 │       ├── VariantTypeGenerator.java #   Variant type enum
 │       ├── VirtualMethodGenerator.java # Virtual method metadata
@@ -327,7 +327,7 @@ When Godot releases a new version, godot-java can be upgraded in one step:
 This script:
 1. Downloads the new `extension_api.json` and `gdextension_interface.json` from godot-cpp
 2. Re-runs the code generator, which auto-updates:
-   - **ApiIndex.java** — 176 API function indices
+   - **ApiIndex.java** — API function indices
    - **ApiSignatures.java** — Panama FunctionDescriptor for each function
    - **VariantType.java** — Variant type enum
    - **StructOffsets.java** — C struct field offsets
