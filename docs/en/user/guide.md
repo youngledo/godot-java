@@ -131,11 +131,11 @@ JNI: calls into JVM
   |
   v
 MethodDispatch.callAdapter()
-  - looks up Method from registered methods by userdata key
+  - looks up the Godot class and method name by userdata key
   - finds Java instance via JavaObjectMap.get(instancePtr)
   - converts Variant args to Java types via VariantUtils.toObject()
-  - coerces types via coerceType() (Number -> int, etc.)
-  - invokes method via reflection: method.invoke(obj, javaArgs)
+  - dispatches through APT-generated MethodHandles in DispatchIndex
+  - reports an invalid call or returns nil when dispatch data is unavailable; it does not use reflection
   - converts return value back to Variant
   |
   v

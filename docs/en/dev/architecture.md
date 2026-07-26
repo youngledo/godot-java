@@ -133,11 +133,11 @@ Godot: object_method_bind_call(bind, obj, args, argc, ret, error)
   v
 MethodDispatch.callAdapter(userdata, instance, args, argc, ret, error)
   |
-  +-- Look up Method from REGISTERED_METHODS by userdata key
+  +-- Look up class and method names by userdata key
   +-- Find Java instance: JavaObjectMap.get(instance.address())
   +-- Convert Variant args to Java objects: VariantUtils.toObject()
-  +-- Coerce types: coerceType() (Number -> int/long/float/double)
-  +-- Invoke: method.invoke(javaObj, javaArgs)
+  +-- Dispatch.dispatchVariantCall(...) -> APT-generated MethodHandle invocation
+  +-- Missing dispatch data: report an invalid call or return nil (no reflection fallback)
   +-- Convert return: VariantUtils.fromObject() -> variant_new_copy
 ```
 
@@ -152,7 +152,7 @@ callStub = Bridge.linker().upcallStub(mh, METHOD_CALL_FD, Bridge.arena());
 - `readTypedPtr()` reads primitives directly (double, float, int, long, boolean), String via GodotString, objects via ref_get_object for RefCounted or direct dereference for non-RefCounted
 - `writeTypedPtr()` writes return values as typed pointers
 - APT-generated `TypedDispatch_<ClassName>` uses MethodHandle dispatch (zero reflection)
-- Falls back to reflection when APT data unavailable
+- Requires APT-generated metadata; there is no reflection fallback
 
 ### Java Calling Godot (call())
 
@@ -183,7 +183,7 @@ The virtual dispatch architecture is aligned with gdext (Rust GDExtension bindin
 
 4. **MethodHandle dispatch** -- during registration, a `MethodHandle` is pre-created for each overridden virtual method, adapted to accept `Godot` as receiver type. At dispatch time:
    - Try cached MethodHandle first (zero reflection, ~36ns/call)
-   - Fall back to `Method.invoke()` if no MethodHandle available (~134ns/call)
+   - Return nil when no dispatch path is available; no reflection fallback is used
 
 ```
 get_virtual_func(godotClassName, userdata, namePtr, compatHash)
@@ -197,15 +197,11 @@ get_virtual_func(godotClassName, userdata, namePtr, compatHash)
 ```
 
 ```
-callVirtualAdapter(methodName, instance, args, ret)
+callVirtualWithDataFunc(instance, namePtr, userdata, args, ret)
   |
   +-- JavaObjectMap.get(instanceAddr) -> Java object
-  +-- findMethodEntry(obj.getClass(), methodName) -> cached MethodEntry
-  +-- If handle != null:
-  |     MethodHandle.dispatch(obj, args...) -> result (fast path)
-  +-- Else:
-        Method.invoke(obj, args) -> result (reflection fallback)
-  +-- VariantUtils.fromObject(result) -> write return Variant
+  +-- Dispatch.dispatchVirtual(className, methodName, instance, args, ret)
+  +-- No dispatch path: write nil (no reflection fallback)
 ```
 
 ## Instance Management
@@ -343,12 +339,10 @@ GDScript: obj.take_damage(30)
   -> Godot: object_method_bind_call()
   -> C++ callback -> JNI -> JVM
   -> MethodDispatch.callAdapter()
-    -> Try APT-generated TypedDispatch_<Class>.dispatchMethod() first
-    -> Fall back to reflection if APT data unavailable
     -> JavaObjectMap.get(instancePtr)
     -> VariantUtils.toObject(): Variant[30] -> Integer(30)
-    -> coerceType(): Integer -> int
-    -> method.invoke(playerObj, 30)
+    -> Dispatch.dispatchVariantCall(...) -> APT-generated MethodHandle invocation
+    -> Missing dispatch data: report an invalid call or return nil
   -> Player.takeDamage(30)
 ```
 

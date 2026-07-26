@@ -124,13 +124,13 @@ Core capabilities currently implemented:
   - `@Export` – export a field to the Godot Inspector with `hint`/`hintString` support
   - `@ExportGroup` / `@ExportSubgroup` – organize exported properties in the Inspector
   - `@Signal` – declare and emit Godot signals from Java with type-safe `TypedSignal0-5`
-  - APT processor (`godot-java-processor`) generates typed dispatch code at compile time (zero runtime reflection in the hot path)
+  - APT processor (`godot-java-processor`) generates the required typed dispatch metadata at compile time; runtime dispatch does not use reflection
 
 - **APT-compiled typed dispatch (aligned with gdext/Rust architecture)**
   - `TypedDispatch_<ClassName>` — MethodHandle/VarHandle-based method dispatch
   - `PropertyAccess_<ClassName>` — VarHandle-based property access for @Export fields
   - `VirtualDispatch_<ParentClass>` — per-parent-class hash maps for virtual method resolution
-  - Reflection fallback when APT data is unavailable
+  - APT-generated metadata is required; missing metadata causes initialization or dispatch failure rather than a reflection fallback
 
 - **Virtual methods and lifecycle callbacks**
   - Supports all 1144 virtual methods across all Godot classes
@@ -167,13 +167,13 @@ The annotation processor (`godot-java-processor`) generates per-class dispatch c
 - **`TypedDispatch_<ClassName>`** — `MethodHandle`/`VarHandle`-based method dispatch (zero reflection on the hot path)
 - **`PropertyAccess_<ClassName>`** — `VarHandle`-based property access for `@Export` fields
 - **`VirtualDispatch_<ParentClass>`** — per-parent-class hash maps for virtual method resolution (reduces candidate names from 1000+ to ~12)
-- Falls back to runtime reflection when APT-generated data is unavailable
+- Requires APT-generated metadata; there is no runtime reflection fallback
 
 ### 2. Virtual Method Dispatch (aligned with gdext/Rust)
 
 - Per-class `get_virtual_func` upcall stubs — lazy, only created for methods the user actually overrides
 - APT-generated per-parent-class hash resolution — eliminates false matches across unrelated classes sharing method names
-- `MethodHandle` pre-cached dispatch with reflection fallback
+- `MethodHandle` pre-cached dispatch without a reflection fallback
 - Hash collision resolution by `StringName` pointer comparison
 
 ### 3. Lifecycle Callbacks
@@ -214,7 +214,7 @@ Some key technical choices in this project:
    - Easier to navigate and refactor in IDEs
 
 3. **Annotation-based registration model**
-   - Generates the registration data Godot needs from annotations and reflection
+   - Generates the registration data Godot needs from annotations at compile time
    - Avoids writing repetitive registration code on the C/C++ side
    - Feels more like writing a normal Java application
 

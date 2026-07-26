@@ -172,7 +172,7 @@ Demo 与示例项目：
 
 - 按类的 `get_virtual_func` upcall stub — 按需创建，仅为用户实际 override 的方法生成
 - APT 生成的按父类哈希解析 — 消除不同类之间同名方法的误匹配
-- `MethodHandle` 预缓存分派，辅以反射回退
+- `MethodHandle` 预缓存分派；缺少 APT 生成数据时不使用反射回退
 - 通过 `StringName` 指针比较解决哈希冲突
 
 ### 3. 生命周期回调

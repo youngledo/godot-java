@@ -190,7 +190,7 @@ APT 处理器（`godot-java-processor`）在编译期为每个 `@GodotClass` 生
 - `VirtualDispatch_<ParentClass>` -- 按父类的 hash 映射（减少候选名称从 1000+ 到 ~12）
 - 属性访问 VarHandle
 
-运行时优先使用 APT 数据，无 APT 数据时回退到反射。
+运行时分派依赖 APT 数据。缺少 APT 生成的注册表会使初始化失败；缺少对应分派数据时回调会报错或返回 nil，不使用反射回退。
 
 ### GDScript 调用 Java 方法
 
@@ -203,10 +203,10 @@ Godot: object_method_bind_call(bind, object, args, argc, result, error)
   |
 C++ methodCallCallback (通过 upcall stub 注册)
   |
-Java: MethodDispatch.dispatch()
+Java: MethodDispatch.callAdapter()
   |
-APT 路径: TypedDispatch_<ClassName>.dispatch(obj, args) -> MethodHandle 调用
-反射回退: Method.invoke(obj, args)
+Dispatch.dispatchVariantCall(className, methodName, obj, args) -> APT 生成的 MethodHandle 调用
+缺少分派数据: 报告调用错误或返回 nil（不反射调用）
   |
 返回结果经 Variant 转换回 GDScript
 ```
@@ -231,18 +231,14 @@ APT 路径: TypedDispatch_<ClassName>.dispatch(obj, args) -> MethodHandle 调用
 
 4. **MethodHandle 分派** -- 注册时预创建 MethodHandle，适配接收者为 Godot 类型：
    - 优先使用缓存 MethodHandle（零反射，~36ns/调用）
-   - 回退到 Method.invoke()（~134ns/调用）
+   - 缺少可用分派数据时返回 nil（不使用反射回退）
 
 ```
-callVirtualAdapter(methodName, instance, args, ret)
+callVirtualWithDataFunc(instance, namePtr, userdata, args, ret)
   |
   +-- JavaObjectMap.get(instanceAddr) -> Java 对象
-  +-- findMethodEntry(obj.getClass(), methodName) -> 缓存的 MethodEntry
-  +-- 若 handle != null:
-  |     MethodHandle.dispatch(obj, args...) -> result（快速路径）
-  +-- 否则:
-        Method.invoke(obj, args) -> result（反射回退）
-  +-- VariantUtils.fromObject(result) -> 写入返回 Variant
+  +-- Dispatch.dispatchVirtual(className, methodName, instance, args, ret)
+  +-- 无可用分派路径: 写入 nil（不反射调用）
 ```
 
 ### 实例管理
