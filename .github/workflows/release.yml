@@ -318,7 +318,7 @@ jobs:
             -Drevision="$REVISION" \
             -Dgodot.java.native.attach.dir="$PWD/dist/native" \
             -DautoPublish=true \
-            -Dmaven.consumer.pom.flatten=false \
+            -Dmaven.consumer.pom=false \
             -DskipTests -Dspotbugs.skip=true -Dspotless.skip=true -B
 
       - name: Attach native fallback artifacts to GitHub Release
