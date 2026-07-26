@@ -223,6 +223,14 @@ public class GodotIntegrationTest {
 				"Ready lifecycle should have been observed. Output:\n" + String.join("\n", outputLines));
 	}
 
+	@Test
+	void testBootstrapDoesNotResolveUnavailableOptionalApis() {
+		assumeTrue(godotAvailable, "Godot not available, skipping integration test");
+		assertFalse(
+				outputLines.stream().anyMatch(line -> line.contains("Attempt to get non-existent interface function")),
+				"Optional APIs must be resolved only when called. Output:\n" + String.join("\n", outputLines));
+	}
+
 	// ----------------------------------------------------------------
 	// Test: @GodotMethod call from GDScript to Java
 	// ----------------------------------------------------------------

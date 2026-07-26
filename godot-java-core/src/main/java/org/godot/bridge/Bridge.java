@@ -164,14 +164,9 @@ public final class Bridge {
 	public static void load(long getProcAddressPtr, long libraryPtr) throws Throwable {
 		LIBRARY_PTR = libraryPtr;
 		// get_proc_address is resolved via JNI in Bootstrap.getProcAddressImpl()
-		if (LAZY_LOAD) {
-			// Store function names for on-demand resolution
-			for (ApiIndex api : ApiIndex.values()) {
-				API_NAMES[api.index()] = toSnakeCase(api.name());
-			}
-		} else {
-			// Eager: resolve all MethodHandles upfront
-			for (ApiIndex api : ApiIndex.values()) {
+		for (ApiIndex api : ApiIndex.values()) {
+			API_NAMES[api.index()] = toSnakeCase(api.name());
+			if (!LAZY_LOAD && api.isRequiredAtBoot()) {
 				API[api.index()] = loadApi(api);
 			}
 		}
@@ -183,7 +178,7 @@ public final class Bridge {
 		// with function-pointer-returning functions)
 		long addr = org.godot.bootstrap.Bootstrap.getProcAddressImpl(cName);
 		if (addr == 0) {
-			throw new RuntimeException("Missing API: " + api.name());
+			throw missingApiException(api);
 		}
 		FunctionDescriptor fd = ApiSignatures.get(api);
 		return LINKER.downcallHandle(MemorySegment.ofAddress(addr), fd);
@@ -250,21 +245,17 @@ public final class Bridge {
 	private static MethodHandle requireApi(ApiIndex api) {
 		MethodHandle handle = API[api.index()];
 		if (handle == null) {
-			if (LAZY_LOAD) {
-				handle = resolveLazy(api);
-			} else {
-				throw new org.godot.exception.GodotApiException(api.name(),
-						"API function not loaded (index=" + api.index() + ")");
-			}
+			handle = resolveOnDemand(api);
 		}
 		return handle;
 	}
 
 	/**
-	 * Lazily resolve an API function on first use. Uses double-checked locking on
-	 * the API array slot.
+	 * Resolve an API function on first use. Optional APIs use this path even when
+	 * eager loading is enabled, so a newer generated binding remains bootable on
+	 * the 4.6 runtime baseline.
 	 */
-	private static MethodHandle resolveLazy(ApiIndex api) {
+	private static MethodHandle resolveOnDemand(ApiIndex api) {
 		int index = api.index();
 		MethodHandle mh = API[index];
 		if (mh != null) {
@@ -276,20 +267,26 @@ public final class Bridge {
 				String cName = API_NAMES[index];
 				long addr = org.godot.bootstrap.Bootstrap.getProcAddressImpl(cName);
 				if (addr == 0) {
-					throw new org.godot.exception.GodotApiException(api.name(),
-							"Failed to resolve lazy function: " + cName);
+					throw missingApiException(api);
 				}
 				try {
 					FunctionDescriptor fd = ApiSignatures.get(api);
 					mh = LINKER.downcallHandle(MemorySegment.ofAddress(addr), fd);
 				} catch (Throwable t) {
 					throw new org.godot.exception.GodotApiException(api.name(),
-							"Failed to create MethodHandle for lazy function: " + cName, t);
+							"Failed to create MethodHandle for on-demand function: " + cName, t);
 				}
 				API[index] = mh;
 			}
 		}
 		return mh;
+	}
+
+	static org.godot.exception.GodotApiException missingApiException(ApiIndex api) {
+		String message = api.since() == null
+				? "Required API function not provided by the current engine"
+				: "Requires Godot " + api.since() + "+; function not provided by the current engine";
+		return new org.godot.exception.GodotApiException(api.name(), message);
 	}
 
 	// ------------------------------------------------------------------------

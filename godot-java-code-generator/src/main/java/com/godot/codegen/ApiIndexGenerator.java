@@ -13,6 +13,9 @@ import java.util.List;
  */
 public class ApiIndexGenerator {
 
+	private static final int RUNTIME_BASELINE_MAJOR = 4;
+	private static final int RUNTIME_BASELINE_MINOR = 6;
+
 	public static void generate(List<GdExtensionInterfaceParser.GdApiFunc> functions, String outputDir,
 			String packageName) throws IOException {
 		StringBuilder sb = new StringBuilder();
@@ -27,7 +30,13 @@ public class ApiIndexGenerator {
 		for (int i = 0; i < functions.size(); i++) {
 			GdExtensionInterfaceParser.GdApiFunc func = functions.get(i);
 			String enumName = func.name().toUpperCase().replace("-", "_");
-			sb.append("\t").append(enumName).append("(").append(i).append(")");
+			sb.append("\t").append(enumName).append("(").append(i).append(", ");
+			if (func.since() == null) {
+				sb.append("null");
+			} else {
+				sb.append("\"").append(func.since()).append("\"");
+			}
+			sb.append(", ").append(isRequiredAtBoot(func.since())).append(")");
 			if (i < functions.size() - 1) {
 				sb.append(",");
 			}
@@ -35,17 +44,41 @@ public class ApiIndexGenerator {
 		}
 
 		sb.append(";\n\n");
-		sb.append("\tprivate final int index;\n\n");
-		sb.append("\tApiIndex(int index) {\n");
+		sb.append("\tprivate final int index;\n");
+		sb.append("\tprivate final String since;\n");
+		sb.append("\tprivate final boolean requiredAtBoot;\n\n");
+		sb.append("\tApiIndex(int index, String since, boolean requiredAtBoot) {\n");
 		sb.append("\t\tthis.index = index;\n");
+		sb.append("\t\tthis.since = since;\n");
+		sb.append("\t\tthis.requiredAtBoot = requiredAtBoot;\n");
 		sb.append("\t}\n\n");
 		sb.append("\tpublic int index() {\n");
 		sb.append("\t\treturn index;\n");
+		sb.append("\t}\n");
+		sb.append("\n\tpublic String since() {\n");
+		sb.append("\t\treturn since;\n");
+		sb.append("\t}\n");
+		sb.append("\n\tpublic boolean isRequiredAtBoot() {\n");
+		sb.append("\t\treturn requiredAtBoot;\n");
 		sb.append("\t}\n");
 		sb.append("}\n");
 
 		writeFile(outputDir, packageName, "ApiIndex.java", sb.toString());
 		System.out.println("Generated: ApiIndex.java (" + functions.size() + " functions)");
+	}
+
+	private static boolean isRequiredAtBoot(String since) {
+		if (since == null || since.isBlank()) {
+			return true;
+		}
+		String[] parts = since.split("\\.", 3);
+		try {
+			int major = Integer.parseInt(parts[0]);
+			int minor = parts.length > 1 ? Integer.parseInt(parts[1]) : 0;
+			return major < RUNTIME_BASELINE_MAJOR || major == RUNTIME_BASELINE_MAJOR && minor <= RUNTIME_BASELINE_MINOR;
+		} catch (NumberFormatException ignored) {
+			return true;
+		}
 	}
 
 	static void writeFile(String outputDir, String packageName, String fileName, String content) throws IOException {

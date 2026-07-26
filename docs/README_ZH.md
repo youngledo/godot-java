@@ -6,7 +6,8 @@
 
 ## 游戏开发者
 
-> 使用 Java 25+ 和 Panama FFI 编写 Godot 4.6 游戏逻辑
+> 使用 Java 25+ 和 Panama FFI 编写 Godot 4.6.2+ 游戏逻辑。绑定以 Godot
+> 4.7.1 API 为目标；4.6 之后引入的 API 仅在调用时解析，不可用时会报告所需的最低 Godot 版本。
 
 - [快速入门](zh/user/getting-started.md) -- 模板项目、Maven 配置、第一个 Java 类
 - [API 参考](zh/user/api.md) -- 注解、类型、核心类
