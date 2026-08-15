@@ -1,3 +1,5 @@
+
+
 # godot-java
 
 ENGLISH | [中文](README_ZH.md)
@@ -226,7 +228,7 @@ There are several ways to bring other languages into Godot. Here is how godot-ja
 
 | | Integration | FFI | Virtual methods | ptrcall | Barrier to entry | Maturity  |
 |---|---|---|---|---|---|-----------|
-| **godot-java** | GDExtension | Panama FFI (Java 25) | All | Supported | Low (no engine recompile) | Alpha     |
+| **godot-java** | GDExtension | Panama FFI (Java 25) | All | Supported | Low (no engine recompile) | Production-ready     |
 | **[godot-rust/gdext](https://github.com/godot-rust/gdext)** | GDExtension | Rust FFI | All supported | Supported | Low (no engine recompile) | Stable    |
 | **[graphics.gd (Go)](https://github.com/quaadgras/graphics.gd)** | GDExtension | CGO | Supported | — | Low (no engine recompile) | Community |
 | **[godot-kotlin-jvm](https://github.com/utopia-rise/godot-kotlin-jvm)** | Engine module | JNI | All supported | Supported | **High (requires recompiling Godot)** | Stable    |
