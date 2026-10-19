@@ -28,3 +28,7 @@ godot-java-core/native/build/
 *.log
 godot-java-examples/native/
 .claude/worktrees/
+
+### Code graph tooling
+.codegraph/
+graphify-out/
