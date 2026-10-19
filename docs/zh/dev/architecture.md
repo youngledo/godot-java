@@ -32,7 +32,7 @@ godot-java/
 │       ├── bootstrap/
 │       │   └── Bootstrap.java        # C++ -> Java 初始化入口
 │       ├── bridge/
-│       │   ├── Bridge.java           # Panama FFI 桥接（176 个 API MethodHandle）
+│       │   ├── Bridge.java           # Panama FFI 桥接（179 个 API MethodHandle）
 │       │   ├── ApiSignatures.java    # API 函数签名定义
 │       │   ├── MethodBindCache.java  # 方法绑定缓存
 │       │   ├── MethodDispatch.java   # 方法分发
@@ -64,7 +64,7 @@ godot-java/
 │       │   ├── Control.java          # UI 节点
 │       │   └── Viewport.java         # 视口
 │       ├── internal/
-│       │   ├── api/ApiIndex.java     # 176 个 API 函数索引
+│       │   ├── api/ApiIndex.java     # 179 个 API 函数索引
 │       │   ├── api/VariantType.java  # Variant 类型枚举
 │       │   ├── ref/JavaObjectMap.java    # nativePtr <-> Java 对象映射
 │       │   ├── ref/GenericGodotObject.java # 通用对象包装器
@@ -107,7 +107,7 @@ godot-java/
 ┌─────────────────▼───────────────────────┐
 │       Java 层 (Panama FFI)              │
 │  - Bootstrap (两阶段初始化)             │
-│  - Bridge (176 个 API MethodHandle)     │
+│  - Bridge (179 个 API MethodHandle)     │
 │  - Variant (类型转换)                   │
 │  - GodotObject (对象包装)               │
 │  - InstanceCallbacks (create/free)      │
@@ -155,7 +155,7 @@ godot_java_init() 被调用
   |
   +-- Java Phase 1: Bootstrap.init(getProcAddress, libraryPtr)
   |     |
-  |     +-- Bridge.load() -> 遍历 ApiIndex，解析 176 个 API 函数为 MethodHandle
+  |     +-- Bridge.load() -> 遍历 ApiIndex，解析 179 个 API 函数为 MethodHandle
   |     +-- Variant.initConstructors() -> 初始化 Variant 类型构造器
   |     +-- Registry.registerBuiltinTypes() -> 注册内建类型
   |     +-- Scanner.scan() -> 扫描 classpath 中的 @GodotClass 类
@@ -281,7 +281,7 @@ CreationInfo4 结构体连接的回调：
 
 | 类名 | 包 | 职责 |
 |------|---|------|
-| `Bridge` | `org.godot.bridge` | 176 个 API MethodHandle 入口，全局 Arena |
+| `Bridge` | `org.godot.bridge` | 179 个 API MethodHandle 入口，全局 Arena |
 | `Bootstrap` | `org.godot.bootstrap` | 两阶段初始化入口，C++ 通过 JNI 调用 |
 | `Variant` | `org.godot.core` | Godot Variant 包装器（24 字节），类型转换 |
 | `Godot` | `org.godot` | 所有 Godot 对象的抽象根类 |
@@ -293,7 +293,7 @@ CreationInfo4 结构体连接的回调：
 | `MethodDispatch` | `org.godot.bridge` | 普通 @GodotMethod 方法分发 |
 | `MethodBindCache` | `org.godot.bridge` | 方法绑定缓存 |
 | `JavaObjectMap` | `org.godot.internal.ref` | nativePtr <-> Java 对象双向映射 |
-| `ApiIndex` | `org.godot.internal.api` | 176 个 API 函数索引枚举 |
+| `ApiIndex` | `org.godot.internal.api` | 179 个 API 函数索引枚举 |
 | `VariantType` | `org.godot.internal.api` | Variant 类型 ID 枚举 |
 | `GodotString` | `org.godot.core` | Godot String 包装器 |
 | `GodotStringName` | `org.godot.core` | Godot StringName 包装器 |

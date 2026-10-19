@@ -65,7 +65,7 @@ godot-java-native       ← Packages C++ shared library per platform
 
 | Component | Purpose |
 |-----------|---------|
-| `Bridge` | Panama FFI bridge to all 176 Godot C API functions. Cached `MethodHandle[]`, scoped call frames for re-entrant calls. |
+| `Bridge` | Panama FFI bridge to all 179 Godot C API functions. Cached `MethodHandle[]`, scoped call frames for re-entrant calls. |
 | `Dispatch` / `DispatchAccessor` | Facade over APT-generated `DispatchIndex.INSTANCE`. The ONLY place `Class.forName` is used (two calls in static init). |
 | `InstanceCallbacks` | Creates `GDExtensionClassCreationInfo4` structs with upcall stubs for create/free/recreate instance. |
 | `MethodRegistration` | Builds `GDExtensionClassMethodInfo` structs, registers `@GodotMethod` and `@GodotMethod(virtual=true)` with ClassDB. |

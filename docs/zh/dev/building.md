@@ -219,11 +219,11 @@ APT 处理器在编译时读取 `virtual_method_index.txt`（由代码生成器�
 
 以下三个文件为手写维护：
 
-- `ApiIndex.java` — API 函数索引（176 个枚举值）
+- `ApiIndex.java` — API 函数索引（179 个枚举值）
 - `ApiSignatures.java` — 每个 API 函数的 Panama `FunctionDescriptor`
 - `VariantType.java` — Variant 类型枚举（47 个值）
 
-**原因：** `gdextension_interface.json` 的 `interface[]` 段落中，176 个函数约有 77 个的参数列表与实际 C ABI（`gdextension_interface.h`）不一致。如果从 JSON 自动生成，会产生错误的函数签名，导致运行时崩溃（如 Variant 构造器失败）。
+**原因：** `gdextension_interface.json` 的 `interface[]` 段落中，179 个函数约有 77 个的参数列表与实际 C ABI（`gdextension_interface.h`）不一致。如果从 JSON 自动生成，会产生错误的函数签名，导致运行时崩溃（如 Variant 构造器失败）。
 
 如果 Godot 后续版本修复了 JSON 的准确性问题，可以在 `Main.java` 中取消注释对应行来启用自动生成。
 
@@ -303,7 +303,7 @@ godot-java: Classes registered at SCENE level
 | 验证项 | 预期结果 |
 |--------|----------|
 | JVM 启动 | "JVM initialized successfully!" |
-| API 加载 | 176 个 GDExtension API 函数全部解析 |
+| API 加载 | 179 个 GDExtension API 函数全部解析 |
 | 类注册 | "Classes registered at SCENE level" |
 | 原生库加载 | 无 "Can't load library" 错误 |
 | 无崩溃 | 没有 `hs_err_pid*.log` 文件 |

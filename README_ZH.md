@@ -276,7 +276,7 @@ godot-java/
 ├── godot-java-code-generator/       # 代码生成器（基于 Godot API JSON）
 │   └── src/main/java/com/godot/codegen/
 │       ├── Main.java                #   入口
-│       ├── ApiIndexGenerator.java   #   176 个 API 函数索引
+│       ├── ApiIndexGenerator.java   #   179 个 API 函数索引
 │       ├── ApiSignaturesGenerator.java # Panama FunctionDescriptor
 │       ├── VariantTypeGenerator.java #   Variant 类型枚举
 │       ├── VirtualMethodGenerator.java # 虚方法元数据

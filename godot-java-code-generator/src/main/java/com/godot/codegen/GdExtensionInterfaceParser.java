@@ -19,7 +19,7 @@ import java.util.HashMap;
  * <ul>
  * <li>{@code types[]} — 145 type definitions (enum, struct, handle, alias,
  * function)</li>
- * <li>{@code interface[]} — 176 API function entries with name, arguments, and
+ * <li>{@code interface[]} — 179 API function entries with name, arguments, and
  * return type</li>
  * </ul>
  */

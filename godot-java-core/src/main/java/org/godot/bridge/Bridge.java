@@ -11,7 +11,7 @@ import org.godot.internal.api.ApiIndex;
 import org.godot.core.Variant;
 
 /**
- * Central Panama FFI bridge to all 176 Godot C API functions.
+ * Central Panama FFI bridge to all 179 Godot C API functions.
  *
  * Uses Java 25's Foreign Function & Memory API (Panama) to link Godot's C
  * functions as cached MethodHandles, achieving ~50ns per call vs ~5000ns for
@@ -43,7 +43,7 @@ public final class Bridge {
 	/** C function names for lazy resolution, indexed by ApiIndex ordinal. */
 	private static final String[] API_NAMES = new String[ApiIndex.values().length];
 
-	/** All 176 API function handles, indexed by ApiIndex ordinal. */
+	/** All 179 API function handles, indexed by ApiIndex ordinal. */
 	private static final MethodHandle[] API = new MethodHandle[ApiIndex.values().length];
 
 	/**

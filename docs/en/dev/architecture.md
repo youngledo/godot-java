@@ -19,7 +19,7 @@ Internal design of the godot-java GDExtension binding.
 +------------------v-----------------------+
 |       Java Layer (Panama FFI)             |
 |  - Bootstrap: init + registerClasses      |
-|  - Bridge: 176 API MethodHandles          |
+|  - Bridge: 179 API MethodHandles          |
 |  - Registry: ClassDB register             |
 |  - Dispatch: APT-generated + upcall stubs |
 |  - APT Processor: compile-time dispatch   |
@@ -40,7 +40,7 @@ Bootstrap.init(getProcAddress, libraryPtr)
 ```
 
 Steps:
-1. **Bridge.load()** -- Resolves all 176 Godot C API functions as Panama `MethodHandle`s. Each API function is looked up via `get_proc_address` and linked through `Linker.nativeLinker().downcallHandle()`.
+1. **Bridge.load()** -- Resolves all 179 Godot C API functions as Panama `MethodHandle`s. Each API function is looked up via `get_proc_address` and linked through `Linker.nativeLinker().downcallHandle()`.
 2. **Variant.initConstructors()** -- Loads Variant type constructors for String and Object.
 3. **Registry.registerBuiltinTypes()** -- Hook for registering built-in type wrappers.
 4. **Scanner.scan()** -- Scans the module path for classes annotated with `@GodotClass`.
@@ -63,7 +63,7 @@ Steps:
 
 **Loading API functions:**
 ```java
-// For each of 176 API indices:
+// For each of 179 API indices:
 long addr = Bootstrap.getProcAddressImpl(cName);
 MethodHandle mh = Linker.nativeLinker().downcallHandle(
     MemorySegment.ofAddress(addr), functionDescriptor);
@@ -253,7 +253,7 @@ The `GDExtensionClassCreationInfo4` struct wires these callbacks:
 | Class | Package | Responsibility |
 |---|---|---|
 | `Bootstrap` | `org.godot.bootstrap` | Entry point: init() and registerClasses() |
-| `Bridge` | `org.godot.bridge` | 176 API MethodHandles, memory allocation |
+| `Bridge` | `org.godot.bridge` | 179 API MethodHandles, memory allocation |
 | `ApiIndex` | `org.godot.internal.api` | Enum of all Godot C API function indices |
 | `ApiSignatures` | `org.godot.bridge` | FunctionDescriptor for each API function |
 | `MethodDispatch` | `org.godot.bridge` | Upcall stub for @GodotMethod calls |
@@ -317,7 +317,7 @@ Godot loads .gdextension
   -> godot_java_init() [C++]
   -> JNI_CreateJavaVM()
   -> Bootstrap.init(procAddress, libraryPtr) [Java via JNI]
-  -> Bridge.load(): 176 API functions -> MethodHandles
+  -> Bridge.load(): 179 API functions -> MethodHandles
   -> Variant.initConstructors()
   -> Scanner.scan() / GeneratedClassRegistry.load(): find @GodotClass classes
   -> [wait for SCENE init level]

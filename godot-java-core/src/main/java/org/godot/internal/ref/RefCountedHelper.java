@@ -45,6 +45,13 @@ public final class RefCountedHelper {
 	/**
 	 * Method hash for RefCounted.reference() and unreference() from
 	 * extension_api.json. Godot 4.6+ requires exact hash — 0 is rejected.
+	 *
+	 * <p>
+	 * The two constants share one value on purpose: Godot hashes a method's
+	 * signature only, and {@code reference()}, {@code unreference()}, and
+	 * {@code init_ref()} are all {@code () -> bool}, so upstream declares the same
+	 * hash 2240911060 for all three. The methods are distinguished by the name
+	 * passed to {@code classdb_get_method_bind}, never by the hash.
 	 */
 	private static final long HASH_REFERENCE = 2240911060L;
 	private static final long HASH_UNREFERENCE = 2240911060L;
