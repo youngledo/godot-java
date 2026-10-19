@@ -8,11 +8,15 @@
  * org.godot.core — Variant, GodotStringName, GodotString - org.godot.node —
  * Node, Node2D (user extends these) - org.godot.math — Vector2, Vector3, etc. -
  * org.godot.collection — GodotArray, GodotDictionary - org.godot.registration —
- * Scanner (classpath scanning)
+ * Scanner (classpath scanning) - org.godot.signal — SignalBuilder, ConnectFlags
+ * - org.godot.resource — Resources (typed load/save facade) -
+ * org.godot.exception — GodotException hierarchy - org.godot.coroutine —
+ * GodotScope (virtual-thread coroutines)
  *
  * Internal packages (not exported): - org.godot.bootstrap — C++ → Java
  * initialization entry point - org.godot.bridge — Panama FFI API bridge -
- * org.godot.internal — Internal utilities
+ * org.godot.builtin — Builtin method pointer cache - org.godot.internal —
+ * Internal utilities
  */
 module org.godot {
 	requires java.base;
@@ -27,4 +31,8 @@ module org.godot {
 	exports org.godot.math;
 	exports org.godot.collection;
 	exports org.godot.registration;
+	exports org.godot.signal;
+	exports org.godot.resource;
+	exports org.godot.exception;
+	exports org.godot.coroutine;
 }
