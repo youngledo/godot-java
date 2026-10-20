@@ -7,7 +7,8 @@ ENGLISH | [中文](README_ZH.md)
 ## Game Developers
 
 > Write Godot 4.6.2+ game logic in Java 25+ using Panama FFI. Bindings target
-> the Godot 4.7.1 API; APIs introduced after 4.6 are resolved on use and report
+> the Godot 4.7 API; CI validates the 4.6.3 and 4.7.2 runtimes. APIs
+> introduced after 4.6 are resolved on use and report
 > their minimum required Godot version when unavailable.
 
 - [Getting Started](en/user/getting-started.md) -- Template project, Maven setup, first Java class

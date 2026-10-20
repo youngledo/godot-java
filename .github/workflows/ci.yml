@@ -42,7 +42,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
-        godot_version: ['4.6.2-stable', '4.7.1-stable']
+        godot_version: ['4.6.3-stable', '4.7.2-stable']
         include:
           - os: macos-latest
             native_build: ./godot-java-core/native/build-macos.sh
