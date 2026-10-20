@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -53,30 +54,52 @@ public class GodotIntegrationTest {
 			System.out.println(
 					"[DEBUG] macOS: CI path exists=" + Files.exists(Path.of(ciPath)) + " -> " + GODOT_BIN_DEFAULT);
 		} else if (os.contains("linux")) {
-			String ciPath = "../godot-bin/Godot_v4.6.2-stable_linux.x86_64";
-			String localPath = "/tmp/Godot_v4.6.2-stable_linux.x86_64";
-			GODOT_BIN_DEFAULT = Files.exists(Path.of(ciPath)) ? ciPath : localPath;
+			// CI binaries are named after the matrix version; glob keeps this
+			// version-agnostic
+			String ciPath = findGodotBinary("../godot-bin", "Godot_v*_linux.x86_64");
+			if (ciPath == null) {
+				ciPath = findGodotBinary("godot-bin", "Godot_v*_linux.x86_64");
+			}
+			String localPath = findGodotBinary("/tmp", "Godot_v*_linux.x86_64");
+			GODOT_BIN_DEFAULT = ciPath != null
+					? ciPath
+					: (localPath != null ? localPath : "godot-bin/Godot_v*_linux.x86_64");
 			System.out.println(
-					"[DEBUG] Linux: CI path exists=" + Files.exists(Path.of(ciPath)) + " -> " + GODOT_BIN_DEFAULT);
+					"[DEBUG] Linux: CI glob=" + ciPath + ", local glob=" + localPath + " -> " + GODOT_BIN_DEFAULT);
 		} else {
-			// Windows - check multiple possible CI paths
-			String[] ciPaths = {"../godot-bin/Godot_v4.6.2-stable_win64.exe", "godot-bin/Godot_v4.6.2-stable_win64.exe",
-					"../godot-bin/Godot_v4.6.2-stable_win64.exe"};
+			// Windows - CI binary sits in godot-bin/ (module dir or repo root)
+			String ciPath = findGodotBinary("godot-bin", "Godot_v*_win64.exe");
+			if (ciPath == null) {
+				ciPath = findGodotBinary("../godot-bin", "Godot_v*_win64.exe");
+			}
 			String localPath = "C:\\Users\\runner\\AppData\\Local\\Godot\\Godot.exe";
-			String selectedPath = localPath;
-			for (String p : ciPaths) {
-				if (Files.exists(Path.of(p))) {
-					selectedPath = p;
-					break;
+			GODOT_BIN_DEFAULT = ciPath != null ? ciPath : localPath;
+			System.out.println("[DEBUG] Windows: CI glob=" + ciPath + " -> " + GODOT_BIN_DEFAULT);
+		}
+	}
+
+	/// Locates a CI-downloaded Godot binary by glob, e.g.
+	/// {@code Godot_v*_linux.x86_64}. CI names binaries after the matrix
+	/// version, so a glob keeps discovery independent of the tested Godot
+	/// version. Returns the lexicographically last match, or {@code null} when
+	/// the directory is missing or has no match.
+	private static String findGodotBinary(String dir, String glob) {
+		Path directory = Path.of(dir);
+		if (!Files.isDirectory(directory)) {
+			return null;
+		}
+		String best = null;
+		try (var entries = Files.newDirectoryStream(directory, glob)) {
+			for (Path entry : entries) {
+				String candidate = entry.toString();
+				if (best == null || candidate.compareTo(best) > 0) {
+					best = candidate;
 				}
 			}
-			GODOT_BIN_DEFAULT = selectedPath;
-			System.out.println("[DEBUG] Windows: CI paths check:");
-			for (String p : ciPaths) {
-				System.out.println("[DEBUG]   " + p + " exists=" + Files.exists(Path.of(p)));
-			}
-			System.out.println("[DEBUG] Windows: Selected path -> " + GODOT_BIN_DEFAULT);
+		} catch (IOException e) {
+			return null;
 		}
+		return best;
 	}
 
 	private static final String IT_TEST_DIR = "../godot-java-examples/examples/it-test";
