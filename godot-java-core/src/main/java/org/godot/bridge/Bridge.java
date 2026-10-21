@@ -394,11 +394,31 @@ public final class Bridge {
 	}
 
 	/**
-	 * Destroy a Variant by calling variant_destroy. Notifies Godot that the Variant
-	 * is being released, allowing proper cleanup of internal references (e.g.,
-	 * reference-counted objects held by the Variant).
+	 * Variant type ids Godot stores in place without a destructor (its internal
+	 * {@code needs_deinit} table): NIL, BOOL, INT, FLOAT, all VECTOR2/3/4 and RECT2
+	 * pairs, PLANE, QUATERNION, COLOR, RID. Bit N set = type N trivially
+	 * destructible.
+	 */
+	private static final long TRIVIAL_VARIANT_MASK = (1L << 0) | (1L << 1) | (1L << 2) | (1L << 3) | (1L << 5)
+			| (1L << 6) | (1L << 7) | (1L << 8) | (1L << 9) | (1L << 10) | (1L << 12) | (1L << 13) | (1L << 14)
+			| (1L << 15) | (1L << 20) | (1L << 23);
+
+	/**
+	 * Destroy a Variant. Types Godot stores in place without a destructor need no
+	 * FFI call — their type tag is reset to NIL, mirroring what {@code ~Variant()}
+	 * leaves behind. Types with internal state (String, Object, Array, …) go
+	 * through {@code variant_destroy} so Godot releases held references.
 	 */
 	public static void destroyVariant(MemorySegment variant) {
+		try {
+			int type = variant.get(java.lang.foreign.ValueLayout.JAVA_INT, 0);
+			if (type >= 0 && type < 64 && (TRIVIAL_VARIANT_MASK & (1L << type)) != 0) {
+				variant.set(java.lang.foreign.ValueLayout.JAVA_INT, 0, 0 /* VariantType.NIL */);
+				return;
+			}
+		} catch (Throwable ignored) {
+			// Unreadable/zero-length segment — fall through to the FFI path.
+		}
 		try {
 			requireApi(ApiIndex.VARIANT_DESTROY).invoke(variant);
 		} catch (Throwable t) {
