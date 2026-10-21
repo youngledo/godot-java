@@ -9,6 +9,7 @@ import org.godot.internal.api.ApiIndex;
 import org.godot.signal.ConnectFlags;
 import java.lang.foreign.MemorySegment;
 import java.time.Duration;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.locks.LockSupport;
 import static java.lang.foreign.ValueLayout.ADDRESS;
@@ -19,6 +20,10 @@ import static java.lang.foreign.ValueLayout.JAVA_LONG;
 /// Launches Virtual Threads that can suspend on signals and delays. All Godot
 /// API calls within a coroutine execute on the main thread via `flush()`,
 /// which should be called each frame from `_process()`.
+///
+/// At engine shutdown, {@link #shutdown()} cancels every parked coroutine with
+/// a {@link CancellationException}, so coroutines waiting on a signal whose
+/// emitter is being freed do not park forever.
 ///
 /// Usage:
 /// ```java
@@ -34,24 +39,49 @@ public final class GodotScope {
 
 	private static final ConcurrentLinkedQueue<Thread> RESUMABLE = new ConcurrentLinkedQueue<>();
 
+	/** Threads parked in await()/delay(); unparked by shutdown(). */
+	private static final ConcurrentLinkedQueue<Thread> PARKED = new ConcurrentLinkedQueue<>();
+
+	private static volatile boolean shutdown;
+
 	/// A handle that can be awaited and fired. Represents a single-shot signal
 	/// for coroutine synchronization.
 	public static final class SignalHandle {
 		private volatile Thread waiter;
 		private volatile Object[] args;
 
-		/// Park the current thread until `fire()` is called.
+		/// Park the current thread until `fire()` is called, or until the scope is
+		/// shut down (throws {@link CancellationException}).
 		public void await() {
-			waiter = Thread.currentThread();
-			LockSupport.park(this);
+			Thread current = Thread.currentThread();
+			waiter = current;
+			PARKED.add(current);
+			try {
+				LockSupport.park(this);
+			} finally {
+				PARKED.remove(current);
+				waiter = null;
+			}
+			if (shutdown && args == null) {
+				throw new CancellationException("godot-java: coroutine cancelled at engine shutdown");
+			}
 		}
 
 		/// Park the current thread until `fire()` is called or the timeout elapses.
 		/// Returns the signal arguments if fired, or null if timed out.
 		public Object[] await(Duration timeout) {
-			waiter = Thread.currentThread();
-			LockSupport.parkNanos(timeout.toNanos());
-			waiter = null;
+			Thread current = Thread.currentThread();
+			waiter = current;
+			PARKED.add(current);
+			try {
+				LockSupport.parkNanos(timeout.toNanos());
+			} finally {
+				PARKED.remove(current);
+				waiter = null;
+			}
+			if (shutdown && args == null) {
+				throw new CancellationException("godot-java: coroutine cancelled at engine shutdown");
+			}
 			return args;
 		}
 
@@ -83,6 +113,9 @@ public final class GodotScope {
 		Thread.ofVirtual().name("godot-coroutine").start(() -> {
 			try {
 				task.run();
+			} catch (CancellationException e) {
+				// Expected at engine shutdown — the coroutine's awaited signal or
+				// delay was cancelled.
 			} catch (Exception e) {
 				System.err.println("[godot-java] Coroutine failed: " + e.getMessage());
 				e.printStackTrace();
@@ -101,7 +134,15 @@ public final class GodotScope {
 			}
 			RESUMABLE.add(current);
 		});
-		LockSupport.park();
+		PARKED.add(current);
+		try {
+			LockSupport.park();
+		} finally {
+			PARKED.remove(current);
+		}
+		if (shutdown) {
+			throw new CancellationException("godot-java: coroutine cancelled at engine shutdown");
+		}
 	}
 
 	/// Await a signal on a Godot object. Connects a one-shot native callable,
@@ -142,11 +183,29 @@ public final class GodotScope {
 		infoSeg.set(ADDRESS, 8, MemorySegment.ofAddress(Bridge.libraryPtr()));
 		infoSeg.set(JAVA_LONG, 16, 0L);
 		infoSeg.set(ADDRESS, 24, CallableDispatch.getCallStub());
-		for (int off = 32; off < 88; off += 8) {
+		infoSeg.set(ADDRESS, 32, CallableDispatch.getIsValidStub());
+		infoSeg.set(ADDRESS, 40, CallableDispatch.getFreeStub());
+		for (int off = 48; off < 88; off += 8) {
 			infoSeg.set(ADDRESS, off, MemorySegment.ofAddress(0));
 		}
 		Bridge.callVoid(ApiIndex.CALLABLE_CUSTOM_CREATE2, callableSeg, infoSeg);
 		return new NativeCallable(callableSeg, key);
+	}
+
+	/// Cancel every parked coroutine (engine shutdown). Coroutines suspended in
+	/// `delay()` or `SignalHandle.await()` resume with a
+	/// {@link CancellationException}.
+	public static void shutdown() {
+		shutdown = true;
+		int cancelled = 0;
+		Thread t;
+		while ((t = PARKED.poll()) != null) {
+			LockSupport.unpark(t);
+			cancelled++;
+		}
+		if (cancelled > 0) {
+			System.err.println("[godot-java] Cancelled " + cancelled + " coroutine(s) at shutdown");
+		}
 	}
 
 	/// Flush all resumable coroutines. Must be called on the main thread
@@ -164,5 +223,11 @@ public final class GodotScope {
 	/// Get the number of resumable coroutines waiting to be flushed.
 	public static int pendingCount() {
 		return RESUMABLE.size();
+	}
+
+	/** Test hook: clear shutdown state after a {@link #shutdown()} call. */
+	static void resetForTesting() {
+		shutdown = false;
+		PARKED.clear();
 	}
 }
