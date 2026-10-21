@@ -181,8 +181,16 @@ public final class InstanceCallbacks {
 	 * Unpacks MemorySegments → calls createInstanceFunc → returns MemorySegment.
 	 */
 	private static MemorySegment createInstanceAdapter(MemorySegment classUserdataPtrSeg, byte notifyPostinit) {
-		long result = createInstanceFunc(classUserdataPtrSeg.address(), notifyPostinit);
-		return MemorySegment.ofAddress(result);
+		try {
+			long result = createInstanceFunc(classUserdataPtrSeg.address(), notifyPostinit);
+			return MemorySegment.ofAddress(result);
+		} catch (Throwable t) {
+			// NULL tells Godot that creation failed. A thrown exception must never
+			// escape a Panama upcall stub into native code — propagation there is
+			// undefined and can crash the process.
+			logger.error("godot-java: create_instance upcall failed", t);
+			return MemorySegment.NULL;
+		}
 	}
 
 	/**
@@ -209,7 +217,12 @@ public final class InstanceCallbacks {
 	 * freeInstanceFunc.
 	 */
 	private static void freeInstanceAdapter(MemorySegment classUserdataPtrSeg, MemorySegment instancePtrSeg) {
-		freeInstanceFunc(classUserdataPtrSeg.address(), instancePtrSeg.address());
+		try {
+			freeInstanceFunc(classUserdataPtrSeg.address(), instancePtrSeg.address());
+		} catch (Throwable t) {
+			logger.error("godot-java: free_instance upcall failed for 0x{}", Long.toHexString(instancePtrSeg.address()),
+					t);
+		}
 	}
 
 	/**
@@ -270,8 +283,14 @@ public final class InstanceCallbacks {
 	 */
 	private static MemorySegment recreateInstanceAdapter(MemorySegment classUserdataPtrSeg,
 			MemorySegment objectPtrSeg) {
-		long result = recreateInstanceFunc(classUserdataPtrSeg.address(), objectPtrSeg.address());
-		return MemorySegment.ofAddress(result);
+		try {
+			long result = recreateInstanceFunc(classUserdataPtrSeg.address(), objectPtrSeg.address());
+			return MemorySegment.ofAddress(result);
+		} catch (Throwable t) {
+			logger.error("godot-java: recreate_instance upcall failed for 0x{}",
+					Long.toHexString(objectPtrSeg.address()), t);
+			return MemorySegment.NULL;
+		}
 	}
 
 	// ------------------------------------------------------------------------
@@ -381,12 +400,22 @@ public final class InstanceCallbacks {
 
 	/** Panama adapter for set_func: bool set(ADDRESS, ADDRESS, ADDRESS) */
 	private static int setPropertyAdapter(MemorySegment instanceSeg, MemorySegment nameSeg, MemorySegment valueSeg) {
-		return setPropertyFunc(instanceSeg.address(), nameSeg.address(), valueSeg.address());
+		try {
+			return setPropertyFunc(instanceSeg.address(), nameSeg.address(), valueSeg.address());
+		} catch (Throwable t) {
+			logger.error("godot-java: set_property upcall failed", t);
+			return 0;
+		}
 	}
 
 	/** Panama adapter for get_func: bool get(ADDRESS, ADDRESS, ADDRESS) */
 	private static int getPropertyAdapter(MemorySegment instanceSeg, MemorySegment nameSeg, MemorySegment retSeg) {
-		return getPropertyFunc(instanceSeg.address(), nameSeg.address(), retSeg.address());
+		try {
+			return getPropertyFunc(instanceSeg.address(), nameSeg.address(), retSeg.address());
+		} catch (Throwable t) {
+			logger.error("godot-java: get_property upcall failed", t);
+			return 0;
+		}
 	}
 
 	// ------------------------------------------------------------------------
@@ -418,7 +447,13 @@ public final class InstanceCallbacks {
 		if (Bridge.isInNativeCallback()) {
 			return;
 		}
-		notificationFunc(instanceSeg.address(), what, reversed);
+		try {
+			notificationFunc(instanceSeg.address(), what, reversed);
+		} catch (Throwable t) {
+			// User onNotification() overrides run here; their exceptions must not
+			// cross the FFI boundary.
+			logger.error("godot-java: notification upcall failed (what={})", what, t);
+		}
 	}
 
 	// ------------------------------------------------------------------------
@@ -460,7 +495,20 @@ public final class InstanceCallbacks {
 
 	/** Panama adapter for to_string_func: void(ADDRESS, ADDRESS, ADDRESS) */
 	private static void toStringAdapter(MemorySegment instanceSeg, MemorySegment retSeg, MemorySegment userdataSeg) {
-		toStringFunc(instanceSeg.address(), retSeg.address(), userdataSeg.address());
+		try {
+			toStringFunc(instanceSeg.address(), retSeg.address(), userdataSeg.address());
+		} catch (Throwable t) {
+			logger.error("godot-java: to_string upcall failed", t);
+			// Mark the string as invalid so Godot falls back to its default
+			// representation instead of reading an unwritten buffer.
+			try {
+				if (retSeg.address() != 0) {
+					MemorySegment.ofAddress(retSeg.address()).reinterpret(1).set(ValueLayout.JAVA_BYTE, 0, (byte) 0);
+				}
+			} catch (Throwable ignored) {
+				// Best effort
+			}
+		}
 	}
 
 	// ------------------------------------------------------------------------
@@ -496,12 +544,20 @@ public final class InstanceCallbacks {
 
 	/** Panama adapter for reference_func: void(ADDRESS) */
 	private static void referenceAdapter(MemorySegment instanceSeg) {
-		referenceFunc(instanceSeg.address());
+		try {
+			referenceFunc(instanceSeg.address());
+		} catch (Throwable t) {
+			logger.error("godot-java: reference upcall failed", t);
+		}
 	}
 
 	/** Panama adapter for unreference_func: void(ADDRESS) */
 	private static void unreferenceAdapter(MemorySegment instanceSeg) {
-		unreferenceFunc(instanceSeg.address());
+		try {
+			unreferenceFunc(instanceSeg.address());
+		} catch (Throwable t) {
+			logger.error("godot-java: unreference upcall failed", t);
+		}
 	}
 
 	// ------------------------------------------------------------------------
@@ -599,8 +655,14 @@ public final class InstanceCallbacks {
 
 	/** Panama adapter for get_property_list_func: ADDRESS(ADDRESS, ADDRESS) */
 	private static MemorySegment getPropertyListAdapter(MemorySegment instanceSeg, MemorySegment countSeg) {
-		long result = getPropertyListFunc(instanceSeg.address(), countSeg.address());
-		return MemorySegment.ofAddress(result);
+		try {
+			long result = getPropertyListFunc(instanceSeg.address(), countSeg.address());
+			return MemorySegment.ofAddress(result);
+		} catch (Throwable t) {
+			logger.error("godot-java: get_property_list upcall failed", t);
+			writeInt(countSeg.address(), 0);
+			return MemorySegment.NULL;
+		}
 	}
 
 	/**
@@ -621,7 +683,11 @@ public final class InstanceCallbacks {
 	 * Panama adapter for free_property_list_func: void(ADDRESS, ADDRESS, JAVA_INT)
 	 */
 	private static void freePropertyListAdapter(MemorySegment instanceSeg, MemorySegment listSeg, int count) {
-		freePropertyListFunc(instanceSeg.address(), listSeg.address(), count);
+		try {
+			freePropertyListFunc(instanceSeg.address(), listSeg.address(), count);
+		} catch (Throwable t) {
+			logger.error("godot-java: free_property_list upcall failed", t);
+		}
 	}
 
 	// ------------------------------------------------------------------------
@@ -654,7 +720,12 @@ public final class InstanceCallbacks {
 	}
 
 	private static int propertyCanRevertAdapter(MemorySegment instanceSeg, MemorySegment nameSeg) {
-		return propertyCanRevertFunc(instanceSeg.address(), nameSeg.address());
+		try {
+			return propertyCanRevertFunc(instanceSeg.address(), nameSeg.address());
+		} catch (Throwable t) {
+			logger.error("godot-java: property_can_revert upcall failed", t);
+			return 0;
+		}
 	}
 
 	/**
@@ -736,7 +807,12 @@ public final class InstanceCallbacks {
 
 	private static int propertyGetRevertAdapter(MemorySegment instanceSeg, MemorySegment nameSeg,
 			MemorySegment retSeg) {
-		return propertyGetRevertFunc(instanceSeg.address(), nameSeg.address(), retSeg.address());
+		try {
+			return propertyGetRevertFunc(instanceSeg.address(), nameSeg.address(), retSeg.address());
+		} catch (Throwable t) {
+			logger.error("godot-java: property_get_revert upcall failed", t);
+			return 0;
+		}
 	}
 
 	// ------------------------------------------------------------------------
@@ -770,7 +846,12 @@ public final class InstanceCallbacks {
 	}
 
 	private static int validatePropertyAdapter(MemorySegment instanceSeg, MemorySegment propertyInfoSeg) {
-		return validatePropertyFunc(instanceSeg.address(), propertyInfoSeg.address());
+		try {
+			return validatePropertyFunc(instanceSeg.address(), propertyInfoSeg.address());
+		} catch (Throwable t) {
+			logger.error("godot-java: validate_property upcall failed", t);
+			return 0;
+		}
 	}
 
 	private static void writeInt(long ptr, int value) {

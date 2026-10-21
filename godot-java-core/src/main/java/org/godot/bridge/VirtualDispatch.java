@@ -294,14 +294,14 @@ public final class VirtualDispatch {
 			if ("_ready".equals(methodName)) {
 				try {
 					Dispatch.initOnReadyFields(godotClassName, obj);
-				} catch (Exception e) {
-					logger.error("Error in initOnReadyFields for {}: {}", godotClassName, e.getMessage());
+				} catch (Throwable t) {
+					logger.error("Error in initOnReadyFields for {}: {}", godotClassName, t.getMessage(), t);
 				}
 			}
 
 			// In editor mode, suppress virtual callbacks for non-tool classes.
 			// This matches gdext's EditorRunBehavior.ToolClassesOnly behavior.
-			if (org.godot.singleton.Engine.singleton().isEditorHint() && !Dispatch.isToolClass(godotClassName)) {
+			if (isEditorMode() && !Dispatch.isToolClass(godotClassName)) {
 				writeNil(ret);
 				return;
 			}
@@ -314,8 +314,10 @@ public final class VirtualDispatch {
 			try {
 				Dispatch.dispatchVirtual(godotClassName, methodName, instance, args, ret);
 				return;
-			} catch (Exception e) {
-				logger.error("VirtualDispatch dispatchVirtual error in {}: {}", methodName, e.getMessage(), e);
+			} catch (Throwable t) {
+				// User virtual methods run here; Throwable (not just Exception) so
+				// Errors never escape the upcall into native code.
+				logger.error("VirtualDispatch dispatchVirtual error in {}: {}", methodName, t.getMessage(), t);
 				writeNil(ret);
 				return;
 			}
@@ -329,6 +331,16 @@ public final class VirtualDispatch {
 	// ------------------------------------------------------------------------
 	// Class name resolution
 	// ------------------------------------------------------------------------
+
+	/// Whether the engine runs in editor mode. Never throws: singleton access
+	/// can fail during deinitialization, and this runs inside an upcall.
+	private static boolean isEditorMode() {
+		try {
+			return org.godot.singleton.Engine.singleton().isEditorHint();
+		} catch (Throwable t) {
+			return false;
+		}
+	}
 
 	private static String resolveClassNameFromUserdata(long userdataAddr) {
 		// class_userdata is the address of the class name StringName.
