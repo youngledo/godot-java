@@ -39,6 +39,7 @@ public class SingletonGenerator {
 		Path dirPath = Path.of(outputDir, packagePath);
 		Files.createDirectories(dirPath);
 
+		List<String> generated = new ArrayList<>();
 		for (ExtensionApiParser.SingletonEntry entry : singletons) {
 			String name = entry.name();
 			String type = entry.type();
@@ -55,8 +56,40 @@ public class SingletonGenerator {
 			try (BufferedWriter writer = Files.newBufferedWriter(filePath, StandardCharsets.UTF_8)) {
 				writer.write(source);
 			}
+			generated.add(name);
 			System.out.println("Generated singleton: " + name + ".java");
 		}
+
+		generateAggregate(outputDir, generated);
+	}
+
+	/**
+	 * Generate the aggregate {@code SingletonCaches} class that invalidates every
+	 * cached singleton pointer at once. Called at engine deinitialization so a
+	 * stale pointer is never handed out after Godot frees its singletons.
+	 */
+	private static void generateAggregate(String outputDir, List<String> names) throws IOException {
+		String packagePath = SINGLETON_PACKAGE.replace('.', '/');
+		Path filePath = Path.of(outputDir, packagePath, "SingletonCaches.java");
+		StringBuilder sb = new StringBuilder();
+		sb.append("package ").append(SINGLETON_PACKAGE).append(";\n\n");
+		sb.append("/**\n");
+		sb.append(" * Invalidates all cached engine singleton pointers.\n");
+		sb.append(" * Auto-generated from extension_api.json. DO NOT EDIT.\n");
+		sb.append(" */\n");
+		sb.append("public final class SingletonCaches {\n");
+		sb.append("\tprivate SingletonCaches() {\n");
+		sb.append("\t}\n\n");
+		sb.append("\tpublic static void invalidateAll() {\n");
+		for (String name : names) {
+			sb.append("\t\t").append(name).append(".invalidateCache();\n");
+		}
+		sb.append("\t}\n");
+		sb.append("}\n");
+		try (BufferedWriter writer = Files.newBufferedWriter(filePath, StandardCharsets.UTF_8)) {
+			writer.write(sb.toString());
+		}
+		System.out.println("Generated singleton aggregate: SingletonCaches.java (" + names.size() + " singletons)");
 	}
 
 	private static String generateSingletonClass(String singletonName, ClassInfo classInfo) {
@@ -111,6 +144,13 @@ public class SingletonGenerator {
 		sb.append("\t\t\t}\n");
 		sb.append("\t\t}\n");
 		sb.append("\t\treturn instance;\n");
+		sb.append("\t}\n");
+
+		// Cache invalidator — called by SingletonCaches.invalidateAll() at engine
+		// deinitialization
+		sb.append("\n\t/** Drop the cached singleton instance (engine deinitialization). */\n");
+		sb.append("\tstatic void invalidateCache() {\n");
+		sb.append("\t\tinstance = null;\n");
 		sb.append("\t}\n");
 
 		sb.append("}\n");

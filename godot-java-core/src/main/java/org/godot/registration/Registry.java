@@ -28,6 +28,9 @@ public final class Registry {
 	private static final java.util.List<String> registeredClassNames = java.util.Collections
 			.synchronizedList(new java.util.ArrayList<>());
 
+	/** Cached instances of user singletons (@GodotClass(singleton = true)). */
+	private static final java.util.Map<String, Godot> userSingletons = new java.util.concurrent.ConcurrentHashMap<>();
+
 	private Registry() {
 	}
 
@@ -206,10 +209,40 @@ public final class Registry {
 			Bridge.callVoid(ApiIndex.OBJECT_SET_INSTANCE, nativeObj, classNameSn.segment(), nativeObj);
 
 			org.godot.singleton.Engine.singleton().registerSingleton(className, instance);
+			userSingletons.put(className, instance);
 			logger.info("Registered singleton: {}", className);
 		} catch (Exception e) {
 			logger.error("Failed to register singleton {}: {}", className, e.getMessage());
 		}
+	}
+
+	/**
+	 * Get the cached instance of a user singleton registered with
+	 * {@code @GodotClass(singleton = true)}. Returns null when no singleton is
+	 * registered under that Godot class name. Cheaper than
+	 * {@code Engine.getSingleton(name)}, which performs a native call per lookup.
+	 */
+	public static Godot getUserSingleton(String godotClassName) {
+		return userSingletons.get(godotClassName);
+	}
+
+	/**
+	 * Typed variant of {@link #getUserSingleton(String)}: resolves the Godot class
+	 * name from the given Java class. Returns null when the class is not a
+	 * registered singleton.
+	 */
+	@SuppressWarnings("unchecked")
+	public static <T extends Godot> T getUserSingleton(Class<? extends Godot> javaClass) {
+		String godotName = Dispatch.getGodotClassName(javaClass.getName());
+		if (godotName == null) {
+			return null;
+		}
+		return (T) userSingletons.get(godotName);
+	}
+
+	/** Drop all cached user singleton instances (deinitialization). */
+	public static void clearUserSingletons() {
+		userSingletons.clear();
 	}
 
 	/**
@@ -252,6 +285,7 @@ public final class Registry {
 		MethodDispatch.reset();
 		RefCountedHelper.cleanup();
 		JavaObjectMap.cleanup();
+		userSingletons.clear();
 
 		int count = registeredClassNames.size();
 		registeredClassNames.clear();
@@ -274,6 +308,7 @@ public final class Registry {
 				Bridge.callVoid(ApiIndex.CLASSDB_UNREGISTER_EXTENSION_CLASS,
 						MemorySegment.ofAddress(Bridge.libraryPtr()), classNameSn.segment());
 				registeredClassNames.remove(className);
+				userSingletons.remove(className);
 				logger.debug("Unregistered class at level: {}", className);
 			}
 		}

@@ -135,6 +135,14 @@ public final class Bootstrap {
 				org.godot.internal.ref.JavaObjectMap.cleanup();
 				org.godot.internal.ref.RefCountedHelper.cleanup();
 			}
+			// Terminal cleanup at CORE level (level 0) — the last level before the
+			// JVM is destroyed: cancel deferred tasks and parked coroutines, and
+			// drop cached singleton pointers so stale pointers are never handed out.
+			if (level == 0) {
+				org.godot.internal.DeferredExecutor.shutdown();
+				org.godot.singleton.SingletonCaches.invalidateAll();
+				org.godot.registration.Registry.clearUserSingletons();
+			}
 			logger.info("Cleanup at level {} complete.", level);
 		} catch (Throwable t) {
 			logger.error("cleanupAtLevel({}) failed", level, t);
