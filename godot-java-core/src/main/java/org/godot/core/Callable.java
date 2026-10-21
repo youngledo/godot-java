@@ -24,6 +24,9 @@ public final class Callable {
 	private final String methodName;
 	private final Object[] boundArgs;
 	private final MemorySegment nativeCallable;
+	/// Non-null when this Callable wraps a NativeCallable created on the Java
+	/// side, allowing isValid() to check the bound object's liveness.
+	private final NativeCallable source;
 
 	public Callable(Godot object, String methodName) {
 		this(object, methodName, (Object[]) null);
@@ -35,19 +38,25 @@ public final class Callable {
 		this.methodName = methodName;
 		this.boundArgs = boundArgs != null && boundArgs.length > 0 ? boundArgs : null;
 		this.nativeCallable = null;
+		this.source = null;
 	}
 
 	/// Wraps a native Godot Callable received from the engine.
 	Callable(MemorySegment nativeCallable) {
+		this(nativeCallable, null);
+	}
+
+	Callable(MemorySegment nativeCallable, NativeCallable source) {
 		this.object = null;
 		this.methodName = "";
 		this.boundArgs = null;
 		this.nativeCallable = nativeCallable;
+		this.source = source;
 	}
 
 	/// Wraps a NativeCallable for passing to Godot APIs like signal connect.
 	public Callable(NativeCallable nativeCallable) {
-		this(nativeCallable.getSegment());
+		this(nativeCallable.getSegment(), nativeCallable);
 	}
 
 	public Godot getObject() {
@@ -78,15 +87,23 @@ public final class Callable {
 	}
 
 	/// Returns true if this callable can be invoked.
+	///
+	/// Java callables follow the bound object's liveness. Native callables
+	/// created on the Java side delegate to their NativeCallable, which tracks
+	/// the bound object; engine-owned native callables cannot be cheaply
+	/// verified and are assumed valid.
 	public boolean isValid() {
 		if (nativeCallable != null && !nativeCallable.equals(MemorySegment.NULL)) {
-			return true;
+			return source != null ? source.isValid() : true;
 		}
 		return object != null && object.isValid();
 	}
 
 	/// Create a native callable for passing to Godot APIs (e.g., Signal.connect).
 	public NativeCallable asNativeCallable() {
+		if (source != null) {
+			return source;
+		}
 		if (nativeCallable != null) {
 			return new NativeCallable(nativeCallable, 0);
 		}

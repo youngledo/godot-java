@@ -41,7 +41,8 @@ public final class CallableDispatch {
 	 * map.
 	 */
 	private static final Map<Long, CallableEntry> CALLABLES = new ConcurrentHashMap<>();
-	private static long nextKey = 1;
+	private static final java.util.concurrent.atomic.AtomicLong NEXT_KEY = new java.util.concurrent.atomic.AtomicLong(
+			1);
 
 	/**
 	 * GDExtensionCallableCustomCall: void(void* callable_userdata, const
@@ -52,6 +53,8 @@ public final class CallableDispatch {
 			ADDRESS, ADDRESS);
 
 	private static volatile MemorySegment callStub;
+	private static volatile MemorySegment isValidStub;
+	private static volatile MemorySegment freeStub;
 	private static volatile boolean initialized = false;
 
 	public static synchronized void ensureInitialized() {
@@ -62,6 +65,18 @@ public final class CallableDispatch {
 					MethodType.methodType(void.class, MemorySegment.class, MemorySegment.class, long.class,
 							MemorySegment.class, MemorySegment.class));
 			callStub = Bridge.linker().upcallStub(mh, CALLABLE_CALL_FD, Bridge.ARENA);
+
+			// GDExtensionCallableCustomIsValid: GDExtensionBool(void* callable_userdata)
+			MethodHandle isValidMh = MethodHandles.lookup().findStatic(CallableDispatch.class, "isValidAdapter",
+					MethodType.methodType(byte.class, MemorySegment.class));
+			isValidStub = Bridge.linker().upcallStub(isValidMh, FunctionDescriptor.of(JAVA_BYTE, ADDRESS),
+					Bridge.ARENA);
+
+			// GDExtensionCallableCustomFree: void(void* callable_userdata)
+			MethodHandle freeMh = MethodHandles.lookup().findStatic(CallableDispatch.class, "freeAdapter",
+					MethodType.methodType(void.class, MemorySegment.class));
+			freeStub = Bridge.linker().upcallStub(freeMh, FunctionDescriptor.ofVoid(ADDRESS), Bridge.ARENA);
+
 			initialized = true;
 		} catch (Exception e) {
 			throw new RuntimeException("CallableDispatch init failed", e);
@@ -80,7 +95,7 @@ public final class CallableDispatch {
 	 */
 	public static long registerCallable(Godot object, String methodName, Object[] boundArgs) {
 		ensureInitialized();
-		long key = nextKey++;
+		long key = NEXT_KEY.getAndIncrement();
 		CALLABLES.put(key, new CallableEntry(object, methodName, boundArgs));
 		return key;
 	}
@@ -91,7 +106,7 @@ public final class CallableDispatch {
 	 */
 	public static long registerLambdaCallable(Runnable action) {
 		ensureInitialized();
-		long key = nextKey++;
+		long key = NEXT_KEY.getAndIncrement();
 		CALLABLES.put(key, new LambdaEntry(action));
 		return key;
 	}
@@ -115,6 +130,60 @@ public final class CallableDispatch {
 	public static MemorySegment getCallStub() {
 		ensureInitialized();
 		return callStub;
+	}
+
+	/** Get the is_valid stub segment (offset 32 of CallableCustomInfo2). */
+	public static MemorySegment getIsValidStub() {
+		ensureInitialized();
+		return isValidStub;
+	}
+
+	/** Get the free stub segment (offset 40 of CallableCustomInfo2). */
+	public static MemorySegment getFreeStub() {
+		ensureInitialized();
+		return freeStub;
+	}
+
+	/**
+	 * Whether the callable registered under the given key can still be invoked:
+	 * lambda callables stay valid while registered; object-bound callables stay
+	 * valid while their bound object is alive.
+	 */
+	public static boolean isCallableValid(long key) {
+		CallableEntry entry = CALLABLES.get(key);
+		if (entry == null) {
+			return false;
+		}
+		if (entry instanceof LambdaEntry) {
+			return true;
+		}
+		return entry.object != null && entry.object.isValid();
+	}
+
+	/**
+	 * Panama adapter for GDExtensionCallableCustomIsValid. Never throws — an
+	 * exception escaping this upcall would propagate into native code.
+	 */
+	static byte isValidAdapter(MemorySegment userdataSeg) {
+		try {
+			return isCallableValid(userdataSeg.address()) ? (byte) 1 : (byte) 0;
+		} catch (Throwable t) {
+			logger.error("godot-java: callable is_valid upcall failed", t);
+			return 0;
+		}
+	}
+
+	/**
+	 * Panama adapter for GDExtensionCallableCustomFree: called by Godot when a
+	 * custom callable is destroyed. Unregisters the dispatch entry, so entries can
+	 * no longer leak when the engine drops the callable.
+	 */
+	static void freeAdapter(MemorySegment userdataSeg) {
+		try {
+			unregisterCallable(userdataSeg.address());
+		} catch (Throwable t) {
+			logger.error("godot-java: callable free upcall failed", t);
+		}
 	}
 
 	/**

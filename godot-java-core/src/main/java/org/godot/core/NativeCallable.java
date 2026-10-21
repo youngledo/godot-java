@@ -93,10 +93,12 @@ public final class NativeCallable {
 		long instanceId = Bridge.callLong(ApiIndex.OBJECT_GET_INSTANCE_ID, MemorySegment.ofAddress(object.getPtr()));
 		infoSeg.set(JAVA_LONG, 16, instanceId); // object_id
 		infoSeg.set(ADDRESS, 24, CallableDispatch.getCallStub()); // call_func
-
-		// Optional function pointers — set to NULL (use defaults)
-		infoSeg.set(ADDRESS, 32, MemorySegment.ofAddress(0)); // is_valid_func
-		infoSeg.set(ADDRESS, 40, MemorySegment.ofAddress(0)); // free_func
+		// is_valid_func — reports bound-object liveness to the engine, so a
+		// connected callable is no longer considered valid after the object dies
+		infoSeg.set(ADDRESS, 32, CallableDispatch.getIsValidStub());
+		// free_func — engine calls this when the custom callable is destroyed,
+		// unregistering the dispatch entry
+		infoSeg.set(ADDRESS, 40, CallableDispatch.getFreeStub());
 		infoSeg.set(ADDRESS, 48, MemorySegment.ofAddress(0)); // hash_func
 		infoSeg.set(ADDRESS, 56, MemorySegment.ofAddress(0)); // equal_func
 		infoSeg.set(ADDRESS, 64, MemorySegment.ofAddress(0)); // less_than_func
@@ -129,6 +131,16 @@ public final class NativeCallable {
 	 */
 	public long getPtr() {
 		return segment.address();
+	}
+
+	/// Whether this callable can still be invoked. For callables created here,
+	/// validity follows the bound object's liveness; Godot-owned callables
+	/// (dispatchKey == 0) are assumed valid.
+	public boolean isValid() {
+		if (dispatchKey == 0) {
+			return true;
+		}
+		return CallableDispatch.isCallableValid(dispatchKey);
 	}
 
 	/// Free this callable and unregister from CallableDispatch.
