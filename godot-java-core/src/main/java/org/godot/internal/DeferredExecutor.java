@@ -91,9 +91,15 @@ public final class DeferredExecutor {
 		return QUEUE.size();
 	}
 
-	/** Test hook: re-enable deferral after a {@link #shutdown()} call. */
+	/**
+	 * Test hook: re-enable deferral after a {@link #shutdown()} call. Also resets
+	 * {@link org.godot.coroutine.GodotScope}, because {@link #shutdown()} cancels
+	 * coroutines transitively — without this, a shutdown test leaves the scope
+	 * cancelled for every later test class in the same JVM.
+	 */
 	static void resetForTesting() {
 		shutdown = false;
 		QUEUE.clear();
+		org.godot.coroutine.GodotScope.resetForTesting();
 	}
 }

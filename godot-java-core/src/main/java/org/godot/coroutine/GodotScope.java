@@ -127,19 +127,10 @@ public final class GodotScope {
 	public static void delay(double seconds) {
 		long deadlineNanos = System.nanoTime() + (long) (seconds * 1_000_000_000);
 		Thread current = Thread.currentThread();
-		// The waker must be a platform thread sleeping via Thread.sleep:
-		// virtual-thread timed parking (parkNanos) regressed on some JDK/OS
-		// combinations (observed on Temurin 25.0.5 Linux), leaving the waker
-		// asleep forever and the coroutine parked for good. Untimed park/unpark
-		// (used for the coroutine itself and SignalHandle) is unaffected.
-		Thread.ofPlatform().daemon().name("godot-coroutine-waker").start(() -> {
+		Thread.startVirtualThread(() -> {
 			long remaining;
 			while ((remaining = deadlineNanos - System.nanoTime()) > 0) {
-				try {
-					Thread.sleep(Math.max(1, remaining / 1_000_000));
-				} catch (InterruptedException e) {
-					return;
-				}
+				LockSupport.parkNanos(remaining);
 			}
 			RESUMABLE.add(current);
 		});
@@ -239,8 +230,12 @@ public final class GodotScope {
 		return PARKED.size();
 	}
 
-	/** Test hook: clear shutdown state after a {@link #shutdown()} call. */
-	static void resetForTesting() {
+	/**
+	 * Test hook: clear shutdown state after a {@link #shutdown()} call. Public
+	 * because {@link org.godot.internal.DeferredExecutor#shutdown()} cancels
+	 * coroutines transitively, so its test hook must restore this scope too.
+	 */
+	public static void resetForTesting() {
 		shutdown = false;
 		PARKED.clear();
 	}
