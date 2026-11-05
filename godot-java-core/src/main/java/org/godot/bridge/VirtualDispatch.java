@@ -313,6 +313,7 @@ public final class VirtualDispatch {
 			}
 			try {
 				Dispatch.dispatchVirtual(godotClassName, methodName, instance, args, ret);
+				org.godot.internal.DestroyedDuringCallReporter.reportIfDestroyed(obj, godotClassName, methodName);
 				return;
 			} catch (Throwable t) {
 				// User virtual methods run here; Throwable (not just Exception) so

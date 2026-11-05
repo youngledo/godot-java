@@ -254,6 +254,7 @@ public final class CallableDispatch {
 			}
 
 			Object result = Dispatch.dispatchVariantCall(godotClassName, entry.methodName, obj, argsToInvoke);
+			org.godot.internal.DestroyedDuringCallReporter.reportIfDestroyed(obj, godotClassName, entry.methodName);
 
 			if (result != null) {
 				try {

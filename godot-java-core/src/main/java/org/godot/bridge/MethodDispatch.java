@@ -124,6 +124,8 @@ public final class MethodDispatch {
 
 				Object result = org.godot.internal.dispatch.Dispatch.dispatchVariantCall(dispatchClassName,
 						dispatchMethodName, obj, javaArgs);
+				org.godot.internal.DestroyedDuringCallReporter.reportIfDestroyed(obj, dispatchClassName,
+						dispatchMethodName);
 
 				if (result != null) {
 					Variant retVar = VariantUtils.fromObject(result);
@@ -189,6 +191,8 @@ public final class MethodDispatch {
 			if (dispatchMethodName != null && dispatchClassName != null) {
 				Object result = org.godot.internal.dispatch.Dispatch.dispatchPtrcall(dispatchClassName,
 						dispatchMethodName, obj, argsSeg, 0);
+				org.godot.internal.DestroyedDuringCallReporter.reportIfDestroyed(obj, dispatchClassName,
+						dispatchMethodName);
 				if (result != null && retSeg.address() != 0) {
 					writeTypedPtr(retSeg, result, result.getClass());
 				}
