@@ -21,6 +21,15 @@ class GodotScopeShutdownTest {
 		GodotScope.resetForTesting();
 	}
 
+	/// Waits up to 5s for a coroutine to actually park. Shutting down before the
+	/// coroutine parked would drain PARKED too early and leave it parked forever.
+	private static void awaitParked() throws InterruptedException {
+		long deadline = System.currentTimeMillis() + 5_000;
+		while (GodotScope.parkedCount() == 0 && System.currentTimeMillis() < deadline) {
+			Thread.sleep(10);
+		}
+	}
+
 	@Test
 	void shutdownCancelsDelayedCoroutine() throws Exception {
 		AtomicBoolean completed = new AtomicBoolean(false);
@@ -33,7 +42,7 @@ class GodotScopeShutdownTest {
 				cancelled.set(true);
 			}
 		});
-		Thread.sleep(200); // let the coroutine park
+		awaitParked();
 		GodotScope.shutdown();
 		coroutine.join(2000);
 		assertFalse(coroutine.isAlive(), "coroutine must not park until the delay elapses");
@@ -52,7 +61,7 @@ class GodotScopeShutdownTest {
 				cancelled.set(true);
 			}
 		});
-		Thread.sleep(200); // let the coroutine park
+		awaitParked();
 		GodotScope.shutdown();
 		coroutine.join(2000);
 		assertFalse(coroutine.isAlive(), "awaiting coroutine must not park forever");
@@ -69,7 +78,7 @@ class GodotScopeShutdownTest {
 			received.set(handle.args());
 			done.countDown();
 		});
-		Thread.sleep(200); // let the coroutine park
+		awaitParked();
 		handle.fire("hello", 42);
 		GodotScope.flush();
 		assertTrue(done.await(2, TimeUnit.SECONDS));

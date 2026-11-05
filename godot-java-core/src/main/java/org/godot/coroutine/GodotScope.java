@@ -225,6 +225,11 @@ public final class GodotScope {
 		return RESUMABLE.size();
 	}
 
+	/** Test hook: number of coroutines currently parked in delay()/await(). */
+	static int parkedCount() {
+		return PARKED.size();
+	}
+
 	/** Test hook: clear shutdown state after a {@link #shutdown()} call. */
 	static void resetForTesting() {
 		shutdown = false;
