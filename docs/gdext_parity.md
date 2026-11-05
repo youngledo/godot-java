@@ -75,7 +75,7 @@ registration, constants, OnReady, hot reload, @ExportToolButton,
   (its needs_deinit table) and resets the type tag to NIL, saving one downcall
   per primitive arg/result on hot paths.
 
-## Fixed on 2026-11-05 (second gap-closure pass)
+## Fixed on 2026-11-05/06 (second and third gap-closure passes)
 
 - **Named math/string conversions** (was gap 5, gdext 0de78392/9a56d34e):
   toVector2i/toVector2, toVector3i/toVector3, toVector4i/toVector4,
@@ -87,22 +87,31 @@ registration, constants, OnReady, hot reload, @ExportToolButton,
   DestroyedDuringCallReporter checks the receiver after variant/ptrcall/
   callable/virtual dispatch and logs an error once per class when an object is
   freed mid-call (engine may still dereference `this` afterwards).
+- **Bitfield combinators + strong typing** (was gap 3, gdext ee828c28): the 41
+  class-scoped bitfields generate as immutable flag classes — one constant per
+  API flag, of(long), varargs with()/without(), has(), value-equality — instead
+  of erased ints. Method parameters/returns and property accessors are typed
+  with the flag class; int-typed properties whose getter methods return
+  bitfields are typed from the method (28 such sites). The ABI descriptor for
+  bitfields changed Int32→Int64, fixing potential truncation of high-bit masks
+  in typed ptrcalls; the global-bitfield fallback type is now long. Verified
+  end-to-end via a Control size-flags round-trip in headless Godot. Remaining
+  limitation (pre-existing, shared with enums): user @GodotMethod parameters
+  cannot be enum/bitfield class types yet — the APT dispatch reads only
+  primitives/String/Object.
 
 ## New Gaps — Lifecycle / Features (remaining)
 
 2. **async GDScript virtual functions** (gdext aa69ba1c): `@GodotMethod(virtual)`
    is sync-only; no coroutine exposure to GDScript.
-3. **Bitfield combinators + strong typing** (gdext ee828c28): generated
-   bitfields are plain enums with raw `.value`; TypeMapper erases
-   `bitfield::X -> int`. No `with()/without()`; no compile-time flag types.
-4. **Startup message buffering + fatal level** (gdext 15034934/0d70b3ab):
+3. **Startup message buffering + fatal level** (gdext 15034934/0d70b3ab):
     registration errors log straight to log4j; no dedup keys, no fatal-abort.
 
 ## New Gaps — Performance (remaining)
 
-5. **Thread-safe FFI allowlist** (gdext b1439376): every Bridge helper asserts
+4. **Thread-safe FFI allowlist** (gdext b1439376): every Bridge helper asserts
    main-thread; no allowlisted unchecked variants for VARIANT_*/STRING_* ops.
-6. **In-engine end-to-end benchmarks** (gdext 0aa01c6e/9c4e9b43): JMH suites are
+5. **In-engine end-to-end benchmarks** (gdext 0aa01c6e/9c4e9b43): JMH suites are
    pure-Java micro-simulations; no live-engine dispatch-path measurement.
 
 ## Not Affected (audited gdext bugfixes with no godot-java analog)
