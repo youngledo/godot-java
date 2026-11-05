@@ -127,10 +127,19 @@ public final class GodotScope {
 	public static void delay(double seconds) {
 		long deadlineNanos = System.nanoTime() + (long) (seconds * 1_000_000_000);
 		Thread current = Thread.currentThread();
-		Thread.startVirtualThread(() -> {
+		// The waker must be a platform thread sleeping via Thread.sleep:
+		// virtual-thread timed parking (parkNanos) regressed on some JDK/OS
+		// combinations (observed on Temurin 25.0.5 Linux), leaving the waker
+		// asleep forever and the coroutine parked for good. Untimed park/unpark
+		// (used for the coroutine itself and SignalHandle) is unaffected.
+		Thread.ofPlatform().daemon().name("godot-coroutine-waker").start(() -> {
 			long remaining;
 			while ((remaining = deadlineNanos - System.nanoTime()) > 0) {
-				LockSupport.parkNanos(remaining);
+				try {
+					Thread.sleep(Math.max(1, remaining / 1_000_000));
+				} catch (InterruptedException e) {
+					return;
+				}
 			}
 			RESUMABLE.add(current);
 		});
