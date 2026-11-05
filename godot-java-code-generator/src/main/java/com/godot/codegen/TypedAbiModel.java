@@ -55,7 +55,12 @@ final class TypedAbiModel {
 		if (type == null || type.isEmpty()) {
 			return new Descriptor("Void", null, "void");
 		}
-		if (type.startsWith("enum::") || type.startsWith("bitfield::")) {
+		if (type.startsWith("bitfield::")) {
+			// GDExtension models bitfields as 64-bit values in both ptrcall
+			// slots and Variants; truncating to Int32 corrupts high-bit masks.
+			return new Descriptor("Int64", param -> "java.lang.Long.valueOf(" + param + ")", "long", null);
+		}
+		if (type.startsWith("enum::")) {
 			return new Descriptor("Int32", param -> "java.lang.Integer.valueOf(" + param + ")", "int", null);
 		}
 		if (type.startsWith("typedarray::")) {

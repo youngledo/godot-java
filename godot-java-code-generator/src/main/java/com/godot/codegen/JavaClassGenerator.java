@@ -296,35 +296,87 @@ public class JavaClassGenerator {
 	 */
 	private void addEnums(TypeSpec.Builder builder, ClassInfo classInfo) {
 		for (EnumInfo enumInfo : classInfo.enums()) {
+			if (enumInfo.isBitfield()) {
+				// Bitfields cannot be Java enums: combined values are not
+				// singleton constants. Generate an immutable flag class with
+				// of/with/without combinators instead.
+				builder.addType(buildBitfieldClass(enumInfo));
+				continue;
+			}
 			TypeSpec.Builder enumBuilder = TypeSpec.enumBuilder(enumInfo.name()).addModifiers(Modifier.PUBLIC);
 
 			// Value field
-			enumBuilder.addField(FieldSpec
-					.builder(enumInfo.isBitfield() ? long.class : int.class, "value", Modifier.PUBLIC, Modifier.FINAL)
-					.build());
+			enumBuilder.addField(FieldSpec.builder(int.class, "value", Modifier.PUBLIC, Modifier.FINAL).build());
 
 			// Constructor
-			enumBuilder.addMethod(MethodSpec.constructorBuilder()
-					.addParameter(enumInfo.isBitfield() ? long.class : int.class, "value")
+			enumBuilder.addMethod(MethodSpec.constructorBuilder().addParameter(int.class, "value")
 					.addStatement("this.value = value").build());
 
-			// Enum constants - use int for enums, long for bitfields
+			// Enum constants
 			for (EnumValue ev : enumInfo.values()) {
-				String literal = enumInfo.isBitfield() ? ev.value() + "L" : String.valueOf((int) ev.value());
-				enumBuilder.addEnumConstant(ev.name(), TypeSpec.anonymousClassBuilder("$L", literal).build());
+				enumBuilder.addEnumConstant(ev.name(),
+						TypeSpec.anonymousClassBuilder("$L", String.valueOf((int) ev.value())).build());
 			}
 
-			// Add fromValue() for non-bitfield enums
-			if (!enumInfo.isBitfield()) {
-				enumBuilder.addMethod(MethodSpec.methodBuilder("fromValue")
-						.addModifiers(Modifier.PUBLIC, Modifier.STATIC).returns(ClassName.get("", enumInfo.name()))
-						.addParameter(int.class, "value").beginControlFlow("for (var e : values())")
-						.addStatement("if (e.value == value) return e").endControlFlow().addStatement("return null")
-						.build());
-			}
+			// fromValue() for enum round-tripping
+			enumBuilder.addMethod(MethodSpec.methodBuilder("fromValue").addModifiers(Modifier.PUBLIC, Modifier.STATIC)
+					.returns(ClassName.get("", enumInfo.name())).addParameter(int.class, "value")
+					.beginControlFlow("for (var e : values())").addStatement("if (e.value == value) return e")
+					.endControlFlow().addStatement("return null").build());
 
 			builder.addType(enumBuilder.build());
 		}
+	}
+
+	/**
+	 * Build a strongly-typed bitfield class: an immutable flag set with one
+	 * constant per API flag value and with/without/has combinators (gdext
+	 * EngineBitfield parity). Combinations are ordinary instances created via
+	 * of()/with(), since they are not singleton constants.
+	 */
+	private TypeSpec buildBitfieldClass(EnumInfo enumInfo) {
+		ClassName self = ClassName.get("", enumInfo.name());
+		TypeSpec.Builder b = TypeSpec.classBuilder(enumInfo.name()).addModifiers(Modifier.PUBLIC, Modifier.STATIC,
+				Modifier.FINAL);
+
+		b.addField(FieldSpec.builder(long.class, "value", Modifier.PUBLIC, Modifier.FINAL).build());
+		b.addMethod(MethodSpec.constructorBuilder().addModifiers(Modifier.PRIVATE).addParameter(long.class, "value")
+				.addStatement("this.value = value").build());
+
+		for (EnumValue ev : enumInfo.values()) {
+			b.addField(FieldSpec.builder(self, ev.name(), Modifier.PUBLIC, Modifier.STATIC, Modifier.FINAL)
+					.initializer("new $T($LL)", self, ev.value()).build());
+		}
+
+		b.addMethod(MethodSpec.methodBuilder("of").addModifiers(Modifier.PUBLIC, Modifier.STATIC).returns(self)
+				.addParameter(long.class, "value").addStatement("return new $T(value)", self).build());
+
+		b.addMethod(MethodSpec.methodBuilder("with").addModifiers(Modifier.PUBLIC).returns(self).varargs(true)
+				.addParameter(ArrayTypeName.of(self), "flags").addStatement("long v = value")
+				.beginControlFlow("for (var f : flags)").addStatement("v |= f.value").endControlFlow()
+				.addStatement("return new $T(v)", self).build());
+
+		b.addMethod(MethodSpec.methodBuilder("without").addModifiers(Modifier.PUBLIC).returns(self).varargs(true)
+				.addParameter(ArrayTypeName.of(self), "flags").addStatement("long v = value")
+				.beginControlFlow("for (var f : flags)").addStatement("v &= ~f.value").endControlFlow()
+				.addStatement("return new $T(v)", self).build());
+
+		b.addMethod(MethodSpec.methodBuilder("has").addModifiers(Modifier.PUBLIC).returns(boolean.class)
+				.addParameter(self, "flag").addStatement("return (value & flag.value) != 0").build());
+
+		b.addMethod(MethodSpec.methodBuilder("equals").addModifiers(Modifier.PUBLIC).addAnnotation(Override.class)
+				.returns(boolean.class).addParameter(java.lang.Object.class, "obj").beginControlFlow("if (this == obj)")
+				.addStatement("return true").endControlFlow().beginControlFlow("if (!(obj instanceof $T other))", self)
+				.addStatement("return false").endControlFlow().addStatement("return value == other.value").build());
+
+		b.addMethod(MethodSpec.methodBuilder("hashCode").addModifiers(Modifier.PUBLIC).addAnnotation(Override.class)
+				.returns(int.class).addStatement("return java.lang.Long.hashCode(value)").build());
+
+		b.addMethod(MethodSpec.methodBuilder("toString").addModifiers(Modifier.PUBLIC).addAnnotation(Override.class)
+				.returns(String.class).addStatement("return $S + value + $S", enumInfo.name() + "{value=", "}")
+				.build());
+
+		return b.build();
 	}
 
 	/**
@@ -423,6 +475,13 @@ public class JavaClassGenerator {
 									hasEnumParams(method)
 											? buildEnumAwareCallArgs(method, paramNames)
 											: TypedCallSupport.callArgs(method, paramNames));
+						} else if (isBitfieldReturnType(method)) {
+							methodBuilder.addStatement("return $T.of($L($S, $S, $L$L$L))", toTypeName(returnType),
+									typedHelper, classInfo.name(), method.name(), method.hash() + "L",
+									TypedCallSupport.returnMetadataArgs(method),
+									hasEnumParams(method)
+											? buildEnumAwareCallArgs(method, paramNames)
+											: TypedCallSupport.callArgs(method, paramNames));
 						} else {
 							methodBuilder.addStatement("return $L($S, $S, $L$L$L)", typedHelper, classInfo.name(),
 									method.name(), method.hash() + "L", TypedCallSupport.returnMetadataArgs(method),
@@ -434,6 +493,11 @@ public class JavaClassGenerator {
 						if (isEnumReturnType(method)) {
 							methodBuilder.addStatement(
 									"return $T.fromValue(((java.lang.Number) callStatic($S, $S, $L$L)).intValue())",
+									toTypeName(returnType), classInfo.name(), method.name(), method.hash() + "L",
+									callArgs);
+						} else if (isBitfieldReturnType(method)) {
+							methodBuilder.addStatement(
+									"return $T.of(((java.lang.Number) callStatic($S, $S, $L$L)).longValue())",
 									toTypeName(returnType), classInfo.name(), method.name(), method.hash() + "L",
 									callArgs);
 						} else {
@@ -467,6 +531,13 @@ public class JavaClassGenerator {
 									hasEnumParams(method)
 											? buildEnumAwareCallArgs(method, paramNames)
 											: TypedCallSupport.callArgs(method, paramNames));
+						} else if (isBitfieldReturnType(method)) {
+							methodBuilder.addStatement("return $T.of($L($S, $S, $L$L$L))", toTypeName(returnType),
+									typedHelper, classInfo.name(), method.name(), method.hash() + "L",
+									TypedCallSupport.returnMetadataArgs(method),
+									hasEnumParams(method)
+											? buildEnumAwareCallArgs(method, paramNames)
+											: TypedCallSupport.callArgs(method, paramNames));
 						} else {
 							methodBuilder.addStatement("return $L($S, $S, $L$L$L)", typedHelper, classInfo.name(),
 									method.name(), method.hash() + "L", TypedCallSupport.returnMetadataArgs(method),
@@ -478,6 +549,11 @@ public class JavaClassGenerator {
 						if (isEnumReturnType(method)) {
 							methodBuilder.addStatement(
 									"return $T.fromValue(((java.lang.Number) callEngine($S, $S, $L$L)).intValue())",
+									toTypeName(returnType), classInfo.name(), method.name(), method.hash() + "L",
+									callArgs);
+						} else if (isBitfieldReturnType(method)) {
+							methodBuilder.addStatement(
+									"return $T.of(((java.lang.Number) callEngine($S, $S, $L$L)).longValue())",
 									toTypeName(returnType), classInfo.name(), method.name(), method.hash() + "L",
 									callArgs);
 						} else {
@@ -629,6 +705,10 @@ public class JavaClassGenerator {
 				break;
 		}
 		if (dv.matches("-?\\d+")) {
+			// Bitfield types construct from the raw value via of(long)
+			if (resolveBitfieldType(arg.type()) != null) {
+				return javaType + ".of(" + dv + "L)";
+			}
 			// Enum types (ClassName.EnumName format, not fully qualified)
 			if (javaType.contains(".") && !javaType.startsWith("java.")
 					&& javaType.indexOf('.') == javaType.lastIndexOf('.')) {
@@ -748,13 +828,13 @@ public class JavaClassGenerator {
 
 		for (PropertyInfo prop : classInfo.properties()) {
 			String javaPropName = toJavaPropertyName(prop.name());
-			String javaType = toSingleJavaType(prop.type());
+			String abiJavaType = toSingleJavaType(prop.type());
 
 			// Determine getter method name
 			String getterMethod = prop.getter();
 			if (getterMethod == null || getterMethod.isEmpty()) {
 				getterMethod = "get_" + prop.name();
-				if (javaType.equals("boolean")) {
+				if (abiJavaType.equals("boolean")) {
 					getterMethod = "is_" + prop.name();
 				}
 			}
@@ -764,55 +844,111 @@ public class JavaClassGenerator {
 				getterName = "is" + capitalize(javaPropName);
 			}
 
+			MethodBindRef getterBind = findMethodBind(classInfo, getterMethod);
+
+			// Class-scoped bitfield flag typing: a direct bitfield property type,
+			// or an int-typed property whose getter method returns a bitfield
+			// (the API declares several such properties as plain int).
+			String resolvedBitfield = resolveBitfieldType(prop.type());
+			if (resolvedBitfield == null && getterBind.method() != null) {
+				resolvedBitfield = resolveBitfieldType(getterBind.method().returnType());
+			}
+			String javaType = resolvedBitfield != null ? resolvedBitfield : abiJavaType;
+			if (resolvedBitfield != null) {
+				// Bitfields cross the ABI as 64-bit values
+				abiJavaType = "long";
+			}
+
 			// Skip if parent has same accessor name with different type
 			String parentGetterType = parentAccessorTypes.get(getterName);
 			if (parentGetterType != null && !parentGetterType.equals(javaType)) {
 				continue;
 			}
 
-			MethodBindRef getterBind = findMethodBind(classInfo, getterMethod);
-			MethodSpec.Builder getterBuilder = MethodSpec.methodBuilder(getterName).addModifiers(Modifier.PUBLIC)
-					.returns(toTypeName(javaType));
-			String typedGetter = getterBind.method() != null
-					? TypedCallSupport.helperName(getterBind.method(), false)
-					: null;
-			if (typedGetter != null
-					&& TypedCallSupport.propertyGetterFallbackReason(getterBind.method(), javaType) == null) {
-				getterBuilder.addStatement("return $L($S, $S, $LL$L)", typedGetter, getterBind.className(),
-						getterMethod, getterBind.hash(), TypedCallSupport.returnMetadataArgs(getterBind.method()));
-			} else {
-				getterBuilder.addStatement("return ($T) callEngine($S, $S, $LL, new java.lang.Object[0])",
-						toTypeName(javaType), getterBind.className(), getterMethod, getterBind.hash());
-			}
-			MethodSpec getterSpec = getterBuilder.build();
-			builder.addMethod(getterSpec);
-
 			// Determine setter method name
 			String setterMethod = prop.setter();
 			if (setterMethod == null || setterMethod.isEmpty()) {
 				setterMethod = "set_" + prop.name();
 			}
-
 			String setterName = "set" + capitalize(javaPropName);
 
-			MethodBindRef setterBind = findMethodBind(classInfo, setterMethod);
-			MethodSpec.Builder setterBuilder = MethodSpec.methodBuilder(setterName).addModifiers(Modifier.PUBLIC)
-					.addParameter(toTypeName(javaType), "value");
-			String typedSetter = setterBind.method() != null
-					? TypedCallSupport.helperName(setterBind.method(), false)
-					: null;
-			if (typedSetter != null
-					&& TypedCallSupport.propertySetterFallbackReason(setterBind.method(), javaType) == null) {
-				setterBuilder.addStatement("$L($S, $S, $LL$L)", typedSetter, setterBind.className(), setterMethod,
-						setterBind.hash(), TypedCallSupport.callArgs(setterBind.method(), List.of("value")));
-			} else {
-				setterBuilder.addStatement(
-						"callEngine($S, $S, $LL, new java.lang.Object[] { " + boxToObject("value", javaType) + " })",
-						setterBind.className(), setterMethod, setterBind.hash());
+			// Skip accessors already provided by method generation with the
+			// identical signature (e.g. a property whose typed getter/setter
+			// method is itself part of the class's API).
+			boolean getterExists = hasZeroArgMethod(builder, getterName);
+			boolean setterExists = hasOneArgMethodOfType(builder, setterName, toTypeName(javaType));
+			if (getterExists && setterExists) {
+				continue;
 			}
-			MethodSpec setterSpec = setterBuilder.build();
-			builder.addMethod(setterSpec);
+			if (!getterExists) {
+				MethodSpec.Builder getterBuilder = MethodSpec.methodBuilder(getterName).addModifiers(Modifier.PUBLIC)
+						.returns(toTypeName(javaType));
+				String typedGetter = getterBind.method() != null
+						? TypedCallSupport.helperName(getterBind.method(), false)
+						: null;
+				if (typedGetter != null
+						&& TypedCallSupport.propertyGetterFallbackReason(getterBind.method(), abiJavaType) == null) {
+					if (resolvedBitfield != null) {
+						getterBuilder.addStatement("return $T.of($L($S, $S, $LL$L))", toTypeName(javaType), typedGetter,
+								getterBind.className(), getterMethod, getterBind.hash(),
+								TypedCallSupport.returnMetadataArgs(getterBind.method()));
+					} else {
+						getterBuilder.addStatement("return $L($S, $S, $LL$L)", typedGetter, getterBind.className(),
+								getterMethod, getterBind.hash(),
+								TypedCallSupport.returnMetadataArgs(getterBind.method()));
+					}
+				} else if (resolvedBitfield != null) {
+					getterBuilder.addStatement("return $T.of(((java.lang.Number) callEngine($S, $S, $LL)).longValue())",
+							toTypeName(javaType), getterBind.className(), getterMethod, getterBind.hash());
+				} else {
+					getterBuilder.addStatement("return ($T) callEngine($S, $S, $LL, new java.lang.Object[0])",
+							toTypeName(javaType), getterBind.className(), getterMethod, getterBind.hash());
+				}
+				builder.addMethod(getterBuilder.build());
+			}
+
+			MethodBindRef setterBind = findMethodBind(classInfo, setterMethod);
+			if (!setterExists) {
+				MethodSpec.Builder setterBuilder = MethodSpec.methodBuilder(setterName).addModifiers(Modifier.PUBLIC)
+						.addParameter(toTypeName(javaType), "value");
+				String typedSetter = setterBind.method() != null
+						? TypedCallSupport.helperName(setterBind.method(), false)
+						: null;
+				if (typedSetter != null
+						&& TypedCallSupport.propertySetterFallbackReason(setterBind.method(), abiJavaType) == null) {
+					setterBuilder.addStatement("$L($S, $S, $LL$L)", typedSetter, setterBind.className(), setterMethod,
+							setterBind.hash(),
+							resolvedBitfield != null
+									? buildEnumAwareCallArgs(setterBind.method(), List.of("value"))
+									: TypedCallSupport.callArgs(setterBind.method(), List.of("value")));
+				} else {
+					setterBuilder.addStatement("callEngine($S, $S, $LL, new java.lang.Object[] { "
+							+ boxToObject("value", javaType) + " })", setterBind.className(), setterMethod,
+							setterBind.hash());
+				}
+				builder.addMethod(setterBuilder.build());
+			}
 		}
+	}
+
+	/// Whether a method with this name and no parameters already exists on the
+	/// class being built (Java has no return-type-only overloading).
+	private boolean hasZeroArgMethod(TypeSpec.Builder builder, String name) {
+		for (MethodSpec ms : builder.build().methodSpecs) {
+			if (ms.name.equals(name) && ms.parameters.isEmpty()) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private boolean hasOneArgMethodOfType(TypeSpec.Builder builder, String name, TypeName paramType) {
+		for (MethodSpec ms : builder.build().methodSpecs) {
+			if (ms.name.equals(name) && ms.parameters.size() == 1 && ms.parameters.get(0).type.equals(paramType)) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/**
@@ -1082,8 +1218,39 @@ public class JavaClassGenerator {
 		return enumRef;
 	}
 
+	/// Resolves "bitfield::Class.Flags" to "Class.Flags" when the flag class is
+	/// generated (class-scoped bitfields); global bitfields have no dot and stay
+	/// long-typed via TypeMapper.
+	private String resolveBitfieldType(String godotType) {
+		if (godotType == null || !godotType.startsWith("bitfield::")) {
+			return null;
+		}
+		String ref = godotType.substring("bitfield::".length());
+		int dot = ref.indexOf('.');
+		if (dot <= 0) {
+			return null;
+		}
+		if (!classMap.containsKey(ref.substring(0, dot))) {
+			return null;
+		}
+		return ref;
+	}
+
+	/// Whether the Godot type resolves to a strongly-typed enum or bitfield
+	/// class whose arguments are marshaled via the public {@code value} field.
+	private boolean isStrongFlagType(String godotType) {
+		return resolveEnumType(godotType) != null || resolveBitfieldType(godotType) != null;
+	}
+
+	private boolean isBitfieldReturnType(MethodInfo method) {
+		return resolveBitfieldType(method.returnType()) != null;
+	}
+
 	private String getEnumAwareParamType(ArgInfo arg) {
 		String resolved = resolveEnumType(arg.type());
+		if (resolved == null) {
+			resolved = resolveBitfieldType(arg.type());
+		}
 		if (resolved != null) {
 			return resolved;
 		}
@@ -1095,6 +1262,9 @@ public class JavaClassGenerator {
 			return "void";
 		}
 		String resolved = resolveEnumType(method.returnType());
+		if (resolved == null) {
+			resolved = resolveBitfieldType(method.returnType());
+		}
 		if (resolved != null) {
 			return resolved;
 		}
@@ -1103,7 +1273,7 @@ public class JavaClassGenerator {
 
 	private boolean hasEnumParams(MethodInfo method) {
 		for (ArgInfo arg : method.arguments()) {
-			if (resolveEnumType(arg.type()) != null)
+			if (isStrongFlagType(arg.type()))
 				return true;
 		}
 		return false;
@@ -1120,8 +1290,9 @@ public class JavaClassGenerator {
 		for (int i = 0; i < method.arguments().size(); i++) {
 			args.append(", ");
 			ArgInfo arg = method.arguments().get(i);
-			if (resolveEnumType(arg.type()) != null) {
-				// Resolved enum type: extract int value
+			if (isStrongFlagType(arg.type())) {
+				// Resolved enum/bitfield type: extract the raw value (int for
+				// enums, long for bitfields — matching the ABI slot width)
 				args.append(paramNames.get(i)).append(".value");
 			} else {
 				// Non-enum: use TypedCallSupport

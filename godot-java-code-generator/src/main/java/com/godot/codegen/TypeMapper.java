@@ -118,10 +118,12 @@ public class TypeMapper {
 			return "Object";
 		}
 
-		// Handle bitfield types BEFORE stripping namespace prefix
-		// "bitfield::TextServer.JustificationFlag" -> "int"
+		// Handle bitfield types BEFORE stripping namespace prefix.
+		// Class-scoped bitfields ("bitfield::Control.SizeFlags") are resolved to
+		// the generated flag class in JavaClassGenerator; this fallback only
+		// affects global bitfields, which stay 64-bit like the GDExtension ABI.
 		if (godotType.startsWith("bitfield::")) {
-			return "int";
+			return "long";
 		}
 
 		// Handle enum types BEFORE stripping namespace prefix
