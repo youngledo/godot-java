@@ -75,26 +75,34 @@ registration, constants, OnReady, hot reload, @ExportToolButton,
   (its needs_deinit table) and resets the type tag to NIL, saving one downcall
   per primitive arg/result on hot paths.
 
+## Fixed on 2026-11-05 (second gap-closure pass)
+
+- **Named math/string conversions** (was gap 5, gdext 0de78392/9a56d34e):
+  toVector2i/toVector2, toVector3i/toVector3, toVector4i/toVector4,
+  toRect2i/toRect2 (truncation toward zero, matching gdext semantics);
+  GodotString.toGodotStringName() (cached) and GodotStringName.toGodotString()
+  (engine stringify, scoped allocation). Verified end-to-end in headless Godot
+  via two new it-test scenarios.
+- **Destroyed-during-call reporting** (was gap 2, gdext 574c9298):
+  DestroyedDuringCallReporter checks the receiver after variant/ptrcall/
+  callable/virtual dispatch and logs an error once per class when an object is
+  freed mid-call (engine may still dereference `this` afterwards).
+
 ## New Gaps — Lifecycle / Features (remaining)
 
-2. **Destroyed-during-call reporting** (gdext 574c9298/305c69f0): no claim
-   counting or diagnostics when the receiver is freed mid-call (Java wrappers
-   stay on-stack so lower severity than gdext; a log diagnostic would do).
-3. **async GDScript virtual functions** (gdext aa69ba1c): `@GodotMethod(virtual)`
+2. **async GDScript virtual functions** (gdext aa69ba1c): `@GodotMethod(virtual)`
    is sync-only; no coroutine exposure to GDScript.
-4. **Bitfield combinators + strong typing** (gdext ee828c28): generated
+3. **Bitfield combinators + strong typing** (gdext ee828c28): generated
    bitfields are plain enums with raw `.value`; TypeMapper erases
    `bitfield::X -> int`. No `with()/without()`; no compile-time flag types.
-5. **Named string/vector conversions** (gdext 9a56d34e/0de78392): no
-   toVector2i/toRect2-style helpers; NodePath maps to plain String.
-6. **Startup message buffering + fatal level** (gdext 15034934/0d70b3ab):
+4. **Startup message buffering + fatal level** (gdext 15034934/0d70b3ab):
     registration errors log straight to log4j; no dedup keys, no fatal-abort.
 
 ## New Gaps — Performance (remaining)
 
-7. **Thread-safe FFI allowlist** (gdext b1439376): every Bridge helper asserts
+5. **Thread-safe FFI allowlist** (gdext b1439376): every Bridge helper asserts
    main-thread; no allowlisted unchecked variants for VARIANT_*/STRING_* ops.
-8. **In-engine end-to-end benchmarks** (gdext 0aa01c6e/9c4e9b43): JMH suites are
+6. **In-engine end-to-end benchmarks** (gdext 0aa01c6e/9c4e9b43): JMH suites are
    pure-Java micro-simulations; no live-engine dispatch-path measurement.
 
 ## Not Affected (audited gdext bugfixes with no godot-java analog)
