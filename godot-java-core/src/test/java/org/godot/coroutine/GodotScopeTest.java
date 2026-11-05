@@ -42,7 +42,9 @@ class GodotScopeTest {
 	@Test
 	void delaySuspendsAndResumes() throws InterruptedException {
 		AtomicReference<String> state = new AtomicReference<>("started");
+		final Thread[] coroutine = new Thread[1];
 		GodotScope.launch(() -> {
+			coroutine[0] = Thread.currentThread();
 			state.set("before-delay");
 			GodotScope.delay(0.05); // 50ms
 			state.set("after-delay");
@@ -56,7 +58,24 @@ class GodotScopeTest {
 		// Resumed: flush repeatedly until the waker's deadline passes and the
 		// coroutine is scheduled again.
 		awaitFlushed(() -> "after-delay".equals(state.get()));
-		assertEquals("after-delay", state.get());
+		if (!"after-delay".equals(state.get())) {
+			// Diagnostics for the resume failure observed on Temurin 25.0.5
+			// Linux runners: distinguish "waker never enqueued the coroutine"
+			// from "unpark does not wake it".
+			String beforeProbe;
+			Thread c = coroutine[0];
+			if (c == null) {
+				beforeProbe = "coroutine thread never ran";
+			} else {
+				beforeProbe = c + " state=" + c.getState();
+				java.util.concurrent.locks.LockSupport.unpark(c);
+				Thread.sleep(200);
+			}
+			fail("delay() did not resume after 5s of flushing; pendingCount=" + GodotScope.pendingCount()
+					+ ", parkedCount=" + GodotScope.parkedCount() + "; before probe: " + beforeProbe
+					+ "; after direct unpark: state=" + state.get() + ", threadState="
+					+ (c == null ? "-" : c.getState()));
+		}
 	}
 
 	@Test
