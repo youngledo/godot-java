@@ -35,6 +35,7 @@ func run_tests():
 	test_method_string()
 	test_string_conversions()
 	test_math_conversions()
+	test_bitfield_round_trip()
 	test_export_properties()
 	test_signal()
 	test_process_virtual()
@@ -126,6 +127,10 @@ func test_string_conversions():
 func test_math_conversions():
 	var result: int = test_node.vector2Truncation(3.7, -2.7)
 	assert_eq(result, 3, "Vector2/Vector2i conversions truncate toward zero")
+
+func test_bitfield_round_trip():
+	var result: int = test_node.bitfieldRoundTrip()
+	assert_eq(result, 3, "Typed bitfield with()/has() round-trips through Control size flags")
 
 func test_export_properties():
 	# Read default values exported from Java

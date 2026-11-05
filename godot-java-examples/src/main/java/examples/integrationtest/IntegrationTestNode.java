@@ -156,6 +156,17 @@ public class IntegrationTestNode extends Node {
 		return new org.godot.math.Vector2(x, y).toVector2i().toVector2().toVector2i().x;
 	}
 
+	/// Exercises strongly-typed bitfields end-to-end: sets Control size flags
+	/// through a generated typed property setter (with() combinator) and reads
+	/// them back through the typed getter.
+	@GodotMethod
+	public long bitfieldRoundTrip() {
+		methodCallCount++;
+		Control control = Control.create();
+		control.setHSizeFlags(Control.SizeFlags.SIZE_FILL.with(Control.SizeFlags.SIZE_EXPAND));
+		return control.getHSizeFlags().value;
+	}
+
 	@GodotMethod
 	public int getMethodCallCount() {
 		return methodCallCount;
