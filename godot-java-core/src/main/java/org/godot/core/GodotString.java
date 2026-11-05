@@ -81,6 +81,11 @@ public final class GodotString {
 		return new java.lang.String(bytes, java.nio.charset.StandardCharsets.UTF_8);
 	}
 
+	/// Convert to a cached {@link GodotStringName} (interned lookup key).
+	public GodotStringName toGodotStringName() {
+		return GodotStringName.fromJavaString(toJavaString());
+	}
+
 	// ------------------------------------------------------------------------
 	// Native access
 	// ------------------------------------------------------------------------

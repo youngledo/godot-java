@@ -190,4 +190,9 @@ public final class Vector4 {
 		h = h * 31 ^ Double.hashCode(w);
 		return h;
 	}
+	/// Convert to the integer {@link Vector4i}, truncating each component toward zero.
+	public Vector4i toVector4i() {
+		return new Vector4i((int) x, (int) y, (int) z, (int) w);
+	}
+
 }

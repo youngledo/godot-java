@@ -33,6 +33,8 @@ func run_tests():
 	test_virtual_ready()
 	test_method_call()
 	test_method_string()
+	test_string_conversions()
+	test_math_conversions()
 	test_export_properties()
 	test_signal()
 	test_process_virtual()
@@ -116,6 +118,14 @@ func test_method_call():
 func test_method_string():
 	var result: String = test_node.echo("test")
 	assert_eq(result, "echo:test", "@GodotMethod echo returns 'echo:test'")
+
+func test_string_conversions():
+	var result: String = test_node.stringConversions("hello-conversion")
+	assert_eq(result, "hello-conversion", "GodotString<->StringName conversions round-trip")
+
+func test_math_conversions():
+	var result: int = test_node.vector2Truncation(3.7, -2.7)
+	assert_eq(result, 3, "Vector2/Vector2i conversions truncate toward zero")
 
 func test_export_properties():
 	# Read default values exported from Java

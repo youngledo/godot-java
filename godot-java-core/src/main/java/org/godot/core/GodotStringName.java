@@ -82,4 +82,18 @@ public final class GodotStringName {
 	public long address() {
 		return ptr.address();
 	}
+
+	/// Convert to a {@link GodotString} via the engine's string conversion.
+	/// Transient like {@link GodotString#fromJavaString}: valid within the
+	/// current call scope.
+	public GodotString toGodotString() {
+		// Hand-build a STRING_NAME variant and stringify it, mirroring the proven
+		// pattern in InstanceCallbacks.stringNamePtrToString.
+		MemorySegment variant = Bridge.allocate(16);
+		variant.set(java.lang.foreign.ValueLayout.JAVA_INT, 0, org.godot.internal.api.VariantType.STRING_NAME.id());
+		variant.set(java.lang.foreign.ValueLayout.JAVA_LONG, 8, ptr.get(java.lang.foreign.ValueLayout.JAVA_LONG, 0));
+		MemorySegment ret = Bridge.allocate(8);
+		Bridge.callVoid(ApiIndex.VARIANT_STRINGIFY, variant, ret);
+		return new GodotString(ret);
+	}
 }

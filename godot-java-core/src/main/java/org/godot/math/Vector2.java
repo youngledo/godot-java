@@ -277,4 +277,9 @@ public final class Vector2 {
 	public int hashCode() {
 		return Double.hashCode(x) ^ (Double.hashCode(y) * 31);
 	}
+	/// Convert to the integer {@link Vector2i}, truncating each component toward zero.
+	public Vector2i toVector2i() {
+		return new Vector2i((int) x, (int) y);
+	}
+
 }

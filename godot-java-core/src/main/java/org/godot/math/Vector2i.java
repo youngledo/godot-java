@@ -30,4 +30,9 @@ public final class Vector2i {
 	public static Vector2i fromSegment(MemorySegment seg) {
 		return new Vector2i(seg.get(JAVA_INT, 0), seg.get(JAVA_INT, 4));
 	}
+	/// Convert to the floating-point {@link Vector2}.
+	public Vector2 toVector2() {
+		return new Vector2(x, y);
+	}
+
 }

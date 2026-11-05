@@ -140,6 +140,22 @@ public class IntegrationTestNode extends Node {
 		return "echo:" + msg;
 	}
 
+	/// Exercises the named string conversions end-to-end through the engine:
+	/// GodotString → GodotStringName → engine stringify → GodotString → Java.
+	@GodotMethod
+	public String stringConversions(String input) {
+		methodCallCount++;
+		return org.godot.core.GodotString.fromJavaString(input).toGodotStringName().toGodotString().toJavaString();
+	}
+
+	/// Exercises Vector2 ↔ Vector2i conversions: truncates toward zero, widens
+	/// back, truncates again, and returns the final x component.
+	@GodotMethod
+	public int vector2Truncation(double x, double y) {
+		methodCallCount++;
+		return new org.godot.math.Vector2(x, y).toVector2i().toVector2().toVector2i().x;
+	}
+
 	@GodotMethod
 	public int getMethodCallCount() {
 		return methodCallCount;

@@ -42,4 +42,9 @@ public final class Vector4i {
 	public static Vector4i fromSegment(MemorySegment seg) {
 		return new Vector4i(seg.get(JAVA_INT, 0), seg.get(JAVA_INT, 4), seg.get(JAVA_INT, 8), seg.get(JAVA_INT, 12));
 	}
+	/// Convert to the floating-point {@link Vector4}.
+	public Vector4 toVector4() {
+		return new Vector4(x, y, z, w);
+	}
+
 }

@@ -61,4 +61,9 @@ public final class Rect2 {
 		return new Rect2(seg.get(JAVA_DOUBLE, 0), seg.get(JAVA_DOUBLE, 8), seg.get(JAVA_DOUBLE, 16),
 				seg.get(JAVA_DOUBLE, 24));
 	}
+	/// Convert to the integer {@link Rect2i}, truncating each component toward zero.
+	public Rect2i toRect2i() {
+		return new Rect2i((int) position.x, (int) position.y, (int) size.x, (int) size.y);
+	}
+
 }
