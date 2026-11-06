@@ -37,6 +37,7 @@ func run_tests():
 	test_math_conversions()
 	test_bitfield_round_trip()
 	test_typed_enum_bitfield_params()
+	test_node_path_special_none()
 	test_export_properties()
 	test_signal()
 	test_process_virtual()
@@ -142,6 +143,16 @@ func test_typed_enum_bitfield_params():
 	assert_eq(b, 3, "bitfield-typed @GodotMethod parameter marshals from GDScript")
 	var rb: int = test_node.echoBitfieldReturn(5)
 	assert_eq(rb, 5, "bitfield-typed @GodotMethod return marshals to GDScript")
+
+func test_node_path_special_none():
+	# Editors since Godot 4.2 send an empty NodePath (not nil) when clearing
+	# an exported object property — must resolve to null, not "" or a crash.
+	test_node.set("exportedNode", NodePath(""))
+	assert_true(test_node.get("exportedNode") == null, "empty NodePath clears exported object property (special none)")
+	# A non-empty NodePath on an object field is a type mismatch: guarded,
+	# logged, and leaves the property untouched instead of crashing.
+	test_node.set("exportedNode", NodePath("Some/Path"))
+	assert_true(test_node.get("exportedNode") == null, "non-empty NodePath on object field rejected without crash")
 
 func test_export_properties():
 	# Read default values exported from Java

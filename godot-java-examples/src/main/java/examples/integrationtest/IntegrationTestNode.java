@@ -47,6 +47,11 @@ public class IntegrationTestNode extends Node {
 	@Export
 	public boolean exportedBool = true;
 
+	/// Exported object property: the editor's clear button sends an empty
+	/// NodePath ("special none") instead of a nil variant when unsetting it.
+	@Export
+	public Node exportedNode;
+
 	private int methodCallCount = 0;
 	private boolean rpcCalled = false;
 
