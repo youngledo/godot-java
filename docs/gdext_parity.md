@@ -9,6 +9,8 @@ metadata:
 
 # godot-java vs gdext Parity Matrix
 
+> 剩余差距的推进顺序与完成状态见 [roadmap.md](roadmap.md)(按序推进,做完标记)。
+
 Last compared: 2026-10-21 against gdext master `0b680b4d` (2026-10-04) + remote tip
 `395476db` (Linux hot-reload libstdc++ fix, Rust-specific). Delta analyzed: 139
 non-merge commits since 2026-05-20.
