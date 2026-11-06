@@ -13,7 +13,7 @@
 
 ## 待办(按优先级排序)
 
-### 1. [ ] enum/bitfield 类型的用户方法参数(APT)
+### 1. [x] enum/bitfield 类型的用户方法参数(APT)
 - **现状**:`@GodotMethod` 参数只支持基元/String/Object。枚举与 bitfield 类参数在
   ptrcall/variant 分发里无法转换(枚举同样受限——先行限制,P1-7 收尾时记录)。
 - **目标**:`GodotClassProcessor.generateArgRead` 支持 int→`Enum.fromValue`/int64→
@@ -21,6 +21,11 @@
   支持其返回值(写 `.value`)。it-test 增加端到端场景。
 - **工作量**:中偏大(动 APT 处理器与写回路径)。
 - **来源**:P1-7 遗留限制;补全 P1-7 的用户侧闭环。
+- **完成**(2026-11-06):新增 `GodotEnum`/`GodotBitfield` 标记接口(`godotValue()`),
+  生成器让全部枚举/标志类实现之;APT 按 `Types.isAssignable` 识别 kind,
+  ptrcall 读参(int32→`fromValue`、int64→`of`)、variant 解包、MethodMeta 注册类型
+  (枚举→int、标志→long)全部接入;运行时 `writeTypedPtr`/`VariantUtils.fromObject`
+  按 `instanceof` 写值。it-test 四个端到端场景(GDScript 双向传枚举/标志)全过。
 
 ### 2. [ ] NODE_PATH "special none"(需先复现)
 - **现状**(gdext e8cb880d):编辑器清空导出字段可能发送空 NodePath;
