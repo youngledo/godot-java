@@ -27,12 +27,17 @@
   (枚举→int、标志→long)全部接入;运行时 `writeTypedPtr`/`VariantUtils.fromObject`
   按 `instanceof` 写值。it-test 四个端到端场景(GDScript 双向传枚举/标志)全过。
 
-### 2. [ ] NODE_PATH "special none"(需先复现)
+### 2. [x] NODE_PATH "special none"(需先复现)
 - **现状**(gdext e8cb880d):编辑器清空导出字段可能发送空 NodePath;
   `VariantUtils.toObject` 无 NODE_PATH 分支,兜底 `asString()` 变成 `""`。
 - **步骤**:先在 Godot 4.7 编辑器复现(headless 难复现,可能需要 `--editor` 脚本
   或手工验证),确认后补 NODE_PATH 分支与对象字段清空语义。
 - **工作量**:修复小,复现成本高。
+- **完成**(2026-11-06):复现方式确定——GDScript `set("exportedNode", NodePath(""))`
+  走与编辑器清除按钮相同的 set_property 链路,无需 UI。修复:`toObject` 新增
+  NODE_PATH 分支,空路径→null(gdext "special none" 语义),非空→路径字符串
+  (顺带修掉非空路径被 `asString()` 静默吞成 `""` 的问题)。it-test 两个场景
+  (空清除 + 非空拒收不崩)在真机通过。
 
 ### 3. [ ] 启动消息缓冲 + fatal 级别
 - **现状**(gdext 15034934/0d70b3ab):注册期错误直接打 log4j,无缓冲、无按类去重、
