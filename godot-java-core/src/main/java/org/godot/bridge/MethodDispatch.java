@@ -228,6 +228,12 @@ public final class MethodDispatch {
 			cstr.set(JAVA_BYTE, utf8.length, (byte) 0);
 			Bridge.callVoid(org.godot.internal.api.ApiIndex.STRING_NEW_WITH_UTF8_CHARS_AND_LEN, ptr.reinterpret(16),
 					cstr, (long) utf8.length);
+		} else if (value instanceof org.godot.core.GodotEnum godotEnum) {
+			// Enum-typed return: int32 slot
+			ptr.reinterpret(4).set(JAVA_INT, 0, godotEnum.godotValue());
+		} else if (value instanceof org.godot.core.GodotBitfield godotBitfield) {
+			// Bitfield-typed return: int64 slot (GDExtension ABI)
+			ptr.reinterpret(8).set(JAVA_LONG, 0, godotBitfield.godotValue());
 		} else if (value instanceof Godot godotObj) {
 			MemorySegment objAddr = MemorySegment.ofAddress(godotObj.getPtr());
 			// RefCounted return: ptrcall expects RefPtr*, use ref_set_object

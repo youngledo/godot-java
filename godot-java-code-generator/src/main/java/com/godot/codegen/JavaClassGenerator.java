@@ -303,7 +303,8 @@ public class JavaClassGenerator {
 				builder.addType(buildBitfieldClass(enumInfo));
 				continue;
 			}
-			TypeSpec.Builder enumBuilder = TypeSpec.enumBuilder(enumInfo.name()).addModifiers(Modifier.PUBLIC);
+			TypeSpec.Builder enumBuilder = TypeSpec.enumBuilder(enumInfo.name()).addModifiers(Modifier.PUBLIC)
+					.addSuperinterface(ClassName.get("org.godot.core", "GodotEnum"));
 
 			// Value field
 			enumBuilder.addField(FieldSpec.builder(int.class, "value", Modifier.PUBLIC, Modifier.FINAL).build());
@@ -317,6 +318,10 @@ public class JavaClassGenerator {
 				enumBuilder.addEnumConstant(ev.name(),
 						TypeSpec.anonymousClassBuilder("$L", String.valueOf((int) ev.value())).build());
 			}
+
+			// Marker-interface accessor (zero-reflection marshaling)
+			enumBuilder.addMethod(MethodSpec.methodBuilder("godotValue").addModifiers(Modifier.PUBLIC)
+					.addAnnotation(Override.class).returns(int.class).addStatement("return value").build());
 
 			// fromValue() for enum round-tripping
 			enumBuilder.addMethod(MethodSpec.methodBuilder("fromValue").addModifiers(Modifier.PUBLIC, Modifier.STATIC)
@@ -336,12 +341,17 @@ public class JavaClassGenerator {
 	 */
 	private TypeSpec buildBitfieldClass(EnumInfo enumInfo) {
 		ClassName self = ClassName.get("", enumInfo.name());
-		TypeSpec.Builder b = TypeSpec.classBuilder(enumInfo.name()).addModifiers(Modifier.PUBLIC, Modifier.STATIC,
-				Modifier.FINAL);
+		TypeSpec.Builder b = TypeSpec.classBuilder(enumInfo.name())
+				.addModifiers(Modifier.PUBLIC, Modifier.STATIC, Modifier.FINAL)
+				.addSuperinterface(ClassName.get("org.godot.core", "GodotBitfield"));
 
 		b.addField(FieldSpec.builder(long.class, "value", Modifier.PUBLIC, Modifier.FINAL).build());
 		b.addMethod(MethodSpec.constructorBuilder().addModifiers(Modifier.PRIVATE).addParameter(long.class, "value")
 				.addStatement("this.value = value").build());
+
+		// Marker-interface accessor (zero-reflection marshaling)
+		b.addMethod(MethodSpec.methodBuilder("godotValue").addModifiers(Modifier.PUBLIC).addAnnotation(Override.class)
+				.returns(long.class).addStatement("return value").build());
 
 		for (EnumValue ev : enumInfo.values()) {
 			b.addField(FieldSpec.builder(self, ev.name(), Modifier.PUBLIC, Modifier.STATIC, Modifier.FINAL)

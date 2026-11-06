@@ -187,7 +187,7 @@ public class GodotClassProcessor extends AbstractProcessor {
 	}
 
 	private record MethodInfo(String javaName, String godotName, String returnType, List<String> paramTypes,
-			List<String> paramNames) {
+			List<String> paramNames, List<String> paramKinds, String returnKind) {
 	}
 
 	private record FieldInfo(String javaName, String propertyName, String type, int hintId, String hintString,
@@ -329,12 +329,16 @@ public class GodotClassProcessor extends AbstractProcessor {
 
 				List<String> paramTypes = new ArrayList<>();
 				List<String> paramNames = new ArrayList<>();
+				List<String> paramKinds = new ArrayList<>();
 				for (VariableElement param : method.getParameters()) {
 					paramTypes.add(typeToDescriptor(param.asType()));
 					paramNames.add(param.getSimpleName().toString());
+					paramKinds.add(flagKind(param.asType()));
 				}
 				String returnType = typeToDescriptor(method.getReturnType());
-				methods.add(new MethodInfo(methodName, godotName, returnType, paramTypes, paramNames));
+				String returnKind = flagKind(method.getReturnType());
+				methods.add(new MethodInfo(methodName, godotName, returnType, paramTypes, paramNames, paramKinds,
+						returnKind));
 			} else if (member.getKind() == ElementKind.FIELD) {
 				VariableElement field = (VariableElement) member;
 				// Track group/subgroup state
@@ -412,6 +416,39 @@ public class GodotClassProcessor extends AbstractProcessor {
 			case VOID -> "void";
 			case ARRAY, DECLARED -> type.toString();
 			default -> type.toString();
+		};
+	}
+
+	/// Kind of a strongly-typed engine enum/bitfield parameter: "" for none,
+	/// "enum" for generated enums (implement GodotEnum), "bitfield" for
+	/// generated flag classes (implement GodotBitfield).
+	private String flagKind(TypeMirror type) {
+		if (type == null || type.getKind() != TypeKind.DECLARED) {
+			return "";
+		}
+		var elements = processingEnv.getElementUtils();
+		var types = processingEnv.getTypeUtils();
+		var bitfieldMarker = elements.getTypeElement("org.godot.core.GodotBitfield");
+		var enumMarker = elements.getTypeElement("org.godot.core.GodotEnum");
+		if (bitfieldMarker == null || enumMarker == null) {
+			return "";
+		}
+		if (types.isAssignable(type, bitfieldMarker.asType())) {
+			return "bitfield";
+		}
+		if (types.isAssignable(type, enumMarker.asType())) {
+			return "enum";
+		}
+		return "";
+	}
+
+	/// Registration-facing type for MethodMeta: enums and bitfields cross the
+	/// Variant/ClassDB boundary as integers (int32/int64 respectively).
+	private String registrationType(String descriptor, String kind) {
+		return switch (kind) {
+			case "enum" -> "int";
+			case "bitfield" -> "long";
+			default -> descriptor;
 		};
 	}
 
@@ -1066,12 +1103,12 @@ public class GodotClassProcessor extends AbstractProcessor {
 			w.write("        m.put(\"" + e.getKey() + "\", new MethodMeta[] {\n");
 			for (MethodInfo mi : e.getValue()) {
 				w.write("            new MethodMeta(\"" + mi.javaName() + "\", \"" + mi.godotName() + "\", \""
-						+ mi.returnType() + "\",\n");
+						+ registrationType(mi.returnType(), mi.returnKind()) + "\",\n");
 				w.write("                new String[] {");
 				for (int i = 0; i < mi.paramTypes().size(); i++) {
 					if (i > 0)
 						w.write(", ");
-					w.write("\"" + mi.paramTypes().get(i) + "\"");
+					w.write("\"" + registrationType(mi.paramTypes().get(i), mi.paramKinds().get(i)) + "\"");
 				}
 				w.write("},\n");
 				w.write("                new String[] {");
@@ -1559,7 +1596,7 @@ public class GodotClassProcessor extends AbstractProcessor {
 				} else {
 					w.write("        if (\"" + mi.godotName() + "\".equals(methodName)) {\n");
 					for (int i = 0; i < mi.paramTypes().size(); i++) {
-						generateArgRead(w, mi.paramTypes().get(i), i);
+						generateArgRead(w, mi.paramTypes().get(i), i, mi.paramKinds().get(i));
 					}
 					if ("void".equals(mi.returnType())) {
 						w.write("            self." + mi.javaName() + "(");
@@ -1605,7 +1642,9 @@ public class GodotClassProcessor extends AbstractProcessor {
 					w.write("        if (\"" + mi.godotName() + "\".equals(methodName)) {\n");
 					for (int i = 0; i < mi.paramTypes().size(); i++) {
 						String pt = mi.paramTypes().get(i);
-						w.write("            " + pt + " arg" + i + " = " + unboxExpr(pt, "args[" + i + "]") + ";\n");
+						String pk = mi.paramKinds().get(i);
+						w.write("            " + pt + " arg" + i + " = " + unboxExpr(pt, "args[" + i + "]", pk)
+								+ ";\n");
 					}
 					if ("void".equals(mi.returnType())) {
 						w.write("            self." + mi.javaName() + "(");
@@ -2052,6 +2091,18 @@ public class GodotClassProcessor extends AbstractProcessor {
 	}
 
 	private String unboxExpr(String descriptor, String expr) {
+		return unboxExpr(descriptor, expr, "");
+	}
+
+	private String unboxExpr(String descriptor, String expr, String kind) {
+		switch (kind) {
+			case "enum" :
+				return descriptor + ".fromValue(((java.lang.Number) " + expr + ").intValue())";
+			case "bitfield" :
+				return descriptor + ".of(((java.lang.Number) " + expr + ").longValue())";
+			default :
+				break;
+		}
 		return switch (descriptor) {
 			case "int" -> "((Number) " + expr + ").intValue()";
 			case "long" -> "((Number) " + expr + ").longValue()";
@@ -2079,10 +2130,31 @@ public class GodotClassProcessor extends AbstractProcessor {
 		return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n");
 	}
 
-	private void generateArgRead(Writer w, String paramType, int index) throws IOException {
+	private void generateArgRead(Writer w, String paramType, int index, String kind) throws IOException {
 		// Read typed pointer from args array for ptrcall dispatch
 		w.write("            long dataPtr" + index + " = args.reinterpret((long) argc * ADDRESS.byteSize())\n");
 		w.write("                .get(ADDRESS, (long) " + index + " * ADDRESS.byteSize()).address();\n");
+
+		switch (kind) {
+			case "enum" -> {
+				// Enum slot is int32; fromValue maps unknown values to null
+				w.write("            int raw" + index + " = dataPtr" + index + " != 0 ? MemorySegment.ofAddress(dataPtr"
+						+ index + ").reinterpret(4).get(JAVA_INT, 0) : 0;\n");
+				w.write("            " + paramType + " arg" + index + " = " + paramType + ".fromValue(raw" + index
+						+ ");\n");
+				return;
+			}
+			case "bitfield" -> {
+				// Bitfield slot is int64 per the GDExtension ABI
+				w.write("            long raw" + index + " = dataPtr" + index
+						+ " != 0 ? MemorySegment.ofAddress(dataPtr" + index
+						+ ").reinterpret(8).get(JAVA_LONG, 0) : 0L;\n");
+				w.write("            " + paramType + " arg" + index + " = " + paramType + ".of(raw" + index + ");\n");
+				return;
+			}
+			default -> {
+			}
+		}
 
 		switch (paramType) {
 			case "double" -> w.write(

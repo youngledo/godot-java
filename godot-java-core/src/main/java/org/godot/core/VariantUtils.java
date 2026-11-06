@@ -34,6 +34,10 @@ public final class VariantUtils {
 			return Variant.fromBoolean((Boolean) value);
 		if (value instanceof Rid rid)
 			return Variant.fromRid(rid.id());
+		if (value instanceof GodotEnum godotEnum)
+			return Variant.fromInt(godotEnum.godotValue());
+		if (value instanceof GodotBitfield godotBitfield)
+			return Variant.fromInt(godotBitfield.godotValue());
 		if (value instanceof Integer || value instanceof Long)
 			return Variant.fromInt(((Number) value).longValue());
 		if (value instanceof Float || value instanceof Double)

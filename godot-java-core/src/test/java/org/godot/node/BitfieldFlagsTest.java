@@ -38,4 +38,15 @@ class BitfieldFlagsTest {
 		assertEquals(0xC000_0000L, big.value);
 		assertTrue(big.has(SizeFlags.of(0x8000_0000L)));
 	}
+
+	@Test
+	void markerInterfacesAreImplemented() {
+		// Zero-reflection marshaling keys on these markers (writeTypedPtr,
+		// VariantUtils.fromObject, APT kind detection).
+		assertTrue(SizeFlags.SIZE_FILL instanceof org.godot.core.GodotBitfield);
+		assertEquals(1L, ((org.godot.core.GodotBitfield) SizeFlags.SIZE_FILL).godotValue());
+		org.godot.node.Node.ProcessMode mode = org.godot.node.Node.ProcessMode.PROCESS_MODE_ALWAYS;
+		assertTrue(mode instanceof org.godot.core.GodotEnum);
+		assertEquals(mode.value, ((org.godot.core.GodotEnum) mode).godotValue());
+	}
 }
