@@ -432,6 +432,16 @@ public final class VariantUtils {
 			return readPackedColorArray(seg);
 		if (type == VariantType.PACKED_VECTOR4_ARRAY.id())
 			return readPackedVector4Array(seg);
+		if (type == VariantType.NODE_PATH.id()) {
+			// Editors since Godot 4.2 send an empty NodePath (not a nil variant)
+			// when the clear button unsets an exported object property — the
+			// "special none" case gdext also handles. Map it to null; non-empty
+			// paths convert to their string content (NodePath maps to String).
+			MemorySegment ret = org.godot.bridge.Bridge.allocate(8);
+			org.godot.bridge.Bridge.callVoid(ApiIndex.VARIANT_STRINGIFY, seg, ret);
+			String path = new GodotString(ret).toJavaString();
+			return path.isEmpty() ? null : path;
+		}
 		return variant.asString();
 	}
 
