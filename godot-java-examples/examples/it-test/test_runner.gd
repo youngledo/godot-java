@@ -36,6 +36,7 @@ func run_tests():
 	test_string_conversions()
 	test_math_conversions()
 	test_bitfield_round_trip()
+	test_typed_enum_bitfield_params()
 	test_export_properties()
 	test_signal()
 	test_process_virtual()
@@ -131,6 +132,16 @@ func test_math_conversions():
 func test_bitfield_round_trip():
 	var result: int = test_node.bitfieldRoundTrip()
 	assert_eq(result, 3, "Typed bitfield with()/has() round-trips through Control size flags")
+
+func test_typed_enum_bitfield_params():
+	var e: int = test_node.echoEnumParam(Node.PROCESS_MODE_ALWAYS)
+	assert_eq(e, Node.PROCESS_MODE_ALWAYS, "enum-typed @GodotMethod parameter marshals from GDScript")
+	var r: int = test_node.echoEnumReturn(3)
+	assert_eq(r, 3, "enum-typed @GodotMethod return marshals to GDScript")
+	var b: int = test_node.echoBitfieldParam(3)
+	assert_eq(b, 3, "bitfield-typed @GodotMethod parameter marshals from GDScript")
+	var rb: int = test_node.echoBitfieldReturn(5)
+	assert_eq(rb, 5, "bitfield-typed @GodotMethod return marshals to GDScript")
 
 func test_export_properties():
 	# Read default values exported from Java

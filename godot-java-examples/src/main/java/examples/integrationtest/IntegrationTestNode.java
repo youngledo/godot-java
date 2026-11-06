@@ -167,6 +167,37 @@ public class IntegrationTestNode extends Node {
 		return control.getHSizeFlags().value;
 	}
 
+	/// Enum-typed @GodotMethod parameter: GDScript passes an int, the variant
+	/// dispatch converts it via fromValue.
+	@GodotMethod
+	public int echoEnumParam(Node.ProcessMode mode) {
+		methodCallCount++;
+		return mode == null ? -1 : mode.godotValue();
+	}
+
+	/// Enum-typed @GodotMethod return: marshaled back to GDScript as an int
+	/// variant via the GodotEnum marker.
+	@GodotMethod
+	public Node.ProcessMode echoEnumReturn(int raw) {
+		methodCallCount++;
+		return Node.ProcessMode.fromValue(raw);
+	}
+
+	/// Bitfield-typed @GodotMethod parameter: converted via of(long).
+	@GodotMethod
+	public long echoBitfieldParam(Control.SizeFlags flags) {
+		methodCallCount++;
+		return flags == null ? -1L : flags.godotValue();
+	}
+
+	/// Bitfield-typed @GodotMethod return: marshaled back as a 64-bit int
+	/// variant via the GodotBitfield marker.
+	@GodotMethod
+	public Control.SizeFlags echoBitfieldReturn(long raw) {
+		methodCallCount++;
+		return Control.SizeFlags.of(raw);
+	}
+
 	@GodotMethod
 	public int getMethodCallCount() {
 		return methodCallCount;
