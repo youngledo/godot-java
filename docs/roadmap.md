@@ -53,21 +53,36 @@
   (OS.quit 不在扩展 API 中,经 Engine.getMainLoop→SceneTree 路径退出)。
   单测 4 个(去重/flush/闩锁/reset),586 全绿;真机 56 PASS 无回归。
 
-### 4. [ ] 线程安全 FFI 白名单
+### 4. [ ] 线程安全 FFI 白名单(推迟,等待触发场景)
 - **现状**(gdext b1439376):所有 Bridge 辅助方法断言主线程,仅全局开关可关。
 - **目标**:为引擎标明线程安全的 `VARIANT_*`/`STRING_*` 操作提供免断言的调用变体
-  (对齐 gdext 的 thread_safe 访问表)。
-- **工作量**:中。**前置**:出现跨线程 Variant/String 使用需求再排期。
+ (对齐 gdext 的 thread_safe 访问表)。
+- **工作量**:中。**前置**(2026-11-12 重申):无跨线程 Variant/String 使用需求,
+ speculative 实现无法验证收益——移至 #6 之后,出现真实需求即提级。
 
-### 5. [ ] 引擎内端到端基准
+### 5. [x] 引擎内端到端基准
 - **现状**(gdext 0aa01c6e/9c4e9b43):JMH 套件是纯 Java 微模拟,缺活引擎内
-  upcall→dispatch→typed return 全链路测量。
+ upcall→dispatch→typed return 全链路测量。
 - **目标**:godot-java-benchmarks 增加 in-engine 模式(如 Java Node 自计时循环)。
 - **工作量**:中(测试基建)。
+- **完成**(2026-11-12):落地为 it-test 基准场景(`BENCH:` 结构化输出),每次
+ CI 六条腿自动产出数据,优于独立模块需手动运行。两条热路径:varcall 上行
+ (GDScript→@GodotMethod,含正确性求和断言)与 typed 下行(Java→引擎 ptrcall,
+ 预热+自计时)。基准立即产出发现:**下行 13.3µs/次 vs 上行 1.8µs/次**——
+ 根因是 `callMethodBindPtr` 每次调用 `Bridge.runScoped` 新建 Arena + typedArgFrame
+ 分配,已立 #7 优化项。本机 Godot 4.6.2 验证 58 PASS。
 
 ### 6. [ ] async GDScript 虚方法
 - **现状**(gdext aa69ba1c):`@GodotMethod(virtual)` 仅同步;无协程暴露给 GDScript。
 - **工作量**:大(涉及 APT、代码生成与运行时协同设计)。**放最后,按需排期**。
+
+### 7. [ ] downcall 热路径优化(#5 基准发现,新增 2026-11-12)
+- **现状**:`callMethodBindPtr` 每次调用经 `Bridge.runScoped` 新建
+ `Arena.ofShared()`(分配+关闭≈µs 级)并新建 TypedArgFrame;实测 13.3µs/次,
+ 比上行 varcall(1.8µs)慢 7 倍,是所有引擎 getter/setter 调用的公共路径。
+- **方向**:Arena 池化/复用(参照 Bridge.CALL_FRAMES 对 Variant 调用帧的预分配
+ 做法)、或轻量级栈式作用域;以 #5 基准为验收(目标:下行进入百纳秒量级)。
+- **工作量**:中。**验收**:#5 基准数据对比。
 
 ## 条件项(不排期,触发时处理)
 
