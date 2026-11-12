@@ -39,12 +39,19 @@
   (顺带修掉非空路径被 `asString()` 静默吞成 `""` 的问题)。it-test 两个场景
   (空清除 + 非空拒收不崩)在真机通过。
 
-### 3. [ ] 启动消息缓冲 + fatal 级别
+### 3. [x] 启动消息缓冲 + fatal 级别
 - **现状**(gdext 15034934/0d70b3ab):注册期错误直接打 log4j,无缓冲、无按类去重、
   无致命终止语义;失败后注册继续。
 - **目标**:StartupMessages 聚合器(缓冲到编辑器 UI 就绪、once-per-class 去重键、
   fatal 级别在 init 完成点终止进程)。
 - **工作量**:中。
+- **完成**(2026-11-12):`StartupMessages`(单锁结构、按 key 去重、ERROR/FATAL、
+  flush 在每级注册末尾输出、fatal 跨级闩锁);Registry 每类 try/catch 隔离
+  (单个类失败不再中断整批注册,fatal 上报;无名类改为显式 error 而非静默跳过);
+  单例失败改走缓冲上报。Bootstrap 分级末尾 flush,fatal 时:编辑器内保持存活
+  (可读消息),运行期经 DeferredExecutor 延迟到首帧 `SceneTree.quit(111)`
+  (OS.quit 不在扩展 API 中,经 Engine.getMainLoop→SceneTree 路径退出)。
+  单测 4 个(去重/flush/闩锁/reset),586 全绿;真机 56 PASS 无回归。
 
 ### 4. [ ] 线程安全 FFI 白名单
 - **现状**(gdext b1439376):所有 Bridge 辅助方法断言主线程,仅全局开关可关。
