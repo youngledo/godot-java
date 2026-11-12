@@ -94,9 +94,51 @@ public final class Bootstrap {
 				Registry.registerUserClasses(classes);
 				logger.info("Registered {} classes at level {}.", classes.size(), level);
 			}
+			handleStartupMessages();
 		} catch (Throwable t) {
 			logger.error("registerClassesAtLevel({}) failed", level, t);
+			org.godot.internal.StartupMessages.fatal("level:" + level,
+					"Registration at level " + level + " failed: " + t);
+			handleStartupMessages();
 		}
+	}
+
+	/**
+	 * Flush buffered startup messages at the end of an initialization level. If any
+	 * fatal error was reported, abort the engine with exit code 111 — deferred to
+	 * the first frame tick so the engine shuts down cleanly — except in the
+	 * interactive editor, where the process stays alive so the messages remain
+	 * readable (gdext parity).
+	 */
+	private static void handleStartupMessages() {
+		boolean fatal = org.godot.internal.StartupMessages.flush();
+		if (!fatal) {
+			return;
+		}
+		boolean editor;
+		try {
+			editor = org.godot.singleton.Engine.singleton().isEditorHint();
+		} catch (Throwable t) {
+			editor = false;
+		}
+		if (editor) {
+			logger.fatal(
+					"godot-java: fatal startup errors occurred; staying alive inside the editor so messages stay readable.");
+			return;
+		}
+		logger.fatal("godot-java: fatal startup errors occurred; quitting with exit code 111.");
+		org.godot.internal.DeferredExecutor.callDeferred(() -> {
+			try {
+				var loop = org.godot.singleton.Engine.singleton().getMainLoop();
+				if (loop instanceof org.godot.node.SceneTree tree) {
+					tree.quit(111);
+					return;
+				}
+			} catch (Throwable ignored) {
+				// Engine already shutting down or scene tree unavailable
+			}
+			Runtime.getRuntime().halt(111);
+		});
 	}
 
 	/**

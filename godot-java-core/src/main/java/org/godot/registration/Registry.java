@@ -59,14 +59,28 @@ public final class Registry {
 		long startNanos = System.nanoTime();
 
 		for (Class<?> cls : classes) {
-			RegistrationStats stats = registerClass(cls);
-			if (stats != null) {
-				classCount++;
-				methodCount += stats.methods;
-				propertyCount += stats.properties;
-				signalCount += stats.signals;
-				constantCount += stats.constants;
+			// One failing class must not abort the registration of the rest:
+			// isolate per class and report fatal startup messages (the engine
+			// quits once initialization settles; see StartupMessages).
+			RegistrationStats stats;
+			try {
+				stats = registerClass(cls);
+			} catch (Throwable t) {
+				org.godot.internal.StartupMessages.fatal("class:" + cls.getName(),
+						"Failed to register class " + cls.getName() + ": " + t);
+				continue;
 			}
+			if (stats == null) {
+				org.godot.internal.StartupMessages.error("class-unresolved:" + cls.getName(),
+						"No Godot class name found for " + cls.getName()
+								+ " — missing APT dispatch metadata? Class is skipped.");
+				continue;
+			}
+			classCount++;
+			methodCount += stats.methods;
+			propertyCount += stats.properties;
+			signalCount += stats.signals;
+			constantCount += stats.constants;
 		}
 
 		long elapsed = (System.nanoTime() - startNanos) / 1_000_000;
@@ -212,7 +226,8 @@ public final class Registry {
 			userSingletons.put(className, instance);
 			logger.info("Registered singleton: {}", className);
 		} catch (Exception e) {
-			logger.error("Failed to register singleton {}: {}", className, e.getMessage());
+			org.godot.internal.StartupMessages.error("singleton:" + className,
+					"Failed to register singleton " + className + ": " + e.getMessage());
 		}
 	}
 
