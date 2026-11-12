@@ -203,6 +203,40 @@ public class IntegrationTestNode extends Node {
 		return Control.SizeFlags.of(raw);
 	}
 
+	/// In-engine benchmark target for the varcall upcall path
+	/// (GDScript → @GodotMethod): trivial int work so the measured cost is
+	/// dominated by dispatch, not computation.
+	@GodotMethod
+	public int benchAdd(int a, int b) {
+		return a + b;
+	}
+
+	/// In-engine benchmark for the typed downcall path (Java → engine via a
+	/// generated wrapper, ptrcall-based callEngineBool). Self-times N calls
+	/// after warmup, prints a BENCH line, and returns the total elapsed
+	/// nanoseconds so the caller can assert the measurement was taken.
+	@GodotMethod
+	public long runDowncallBenchmark(int iterations) {
+		int warmup = Math.min(2_000, iterations);
+		for (int i = 0; i < warmup; i++) {
+			isProcessing();
+		}
+		int count = 0;
+		long start = System.nanoTime();
+		for (int i = 0; i < iterations; i++) {
+			if (isProcessing()) {
+				count++;
+			}
+		}
+		long elapsed = System.nanoTime() - start;
+		if (count != iterations) {
+			System.out.println("BENCH-WARN: isProcessing() returned false " + (iterations - count) + " times");
+		}
+		System.out.println("BENCH: typed_downcall n=" + iterations + " total_ns=" + elapsed + " per_call_ns="
+				+ (elapsed / iterations));
+		return elapsed;
+	}
+
 	@GodotMethod
 	public int getMethodCallCount() {
 		return methodCallCount;

@@ -38,6 +38,7 @@ func run_tests():
 	test_bitfield_round_trip()
 	test_typed_enum_bitfield_params()
 	test_node_path_special_none()
+	test_in_engine_benchmarks()
 	test_export_properties()
 	test_signal()
 	test_process_virtual()
@@ -153,6 +154,23 @@ func test_node_path_special_none():
 	# logged, and leaves the property untouched instead of crashing.
 	test_node.set("exportedNode", NodePath("Some/Path"))
 	assert_true(test_node.get("exportedNode") == null, "non-empty NodePath on object field rejected without crash")
+
+func test_in_engine_benchmarks():
+	# 1) varcall upcall round-trip: GDScript -> @GodotMethod, timed from
+	#    GDScript so the full engine-side call path is included.
+	var n := 50000
+	var acc := 0
+	var start_us := Time.get_ticks_usec()
+	for i in range(n):
+		acc += test_node.benchAdd(i, 1)
+	var total_us := Time.get_ticks_usec() - start_us
+	# sum(i + 1 for i in 0..n-1) == n*(n-1)/2 + n — proves every call ran
+	assert_eq(acc, n * (n - 1) / 2 + n, "benchmark loop computed correct results")
+	print("BENCH: varcall_upcall n=%d total_us=%d per_call_us=%.3f" % [n, total_us, float(total_us) / n])
+
+	# 2) typed downcall (ptrcall): Java -> engine, self-timed in Java.
+	var elapsed_ns: int = test_node.runDowncallBenchmark(n)
+	assert_true(elapsed_ns > 0, "downcall benchmark produced a measurement")
 
 func test_export_properties():
 	# Read default values exported from Java
