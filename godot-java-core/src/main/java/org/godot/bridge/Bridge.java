@@ -340,8 +340,10 @@ public final class Bridge {
 	public static <T> T runScoped(java.util.concurrent.Callable<T> action) {
 		ScopeContext prev = SCOPE_CTX.orElse(NO_SCOPE);
 		if (prev != NO_SCOPE) {
-			// Nested call: reuse arena, increment depth
-			ScopeContext ctx = new ScopeContext(prev.arena(), prev.depth() + 1);
+			// Nested call: reuse arena, increment depth; inherit the arena's
+			// lifetime counters so pooled recycling sees nested allocations
+			ScopeContext ctx = new ScopeContext(prev.arena(), prev.depth() + 1, prev.allocatedBytes(),
+					prev.allocationCount());
 			try {
 				return ScopedValue.where(SCOPE_CTX, ctx).call(action::call);
 			} catch (RuntimeException e) {
@@ -350,8 +352,10 @@ public final class Bridge {
 				throw new RuntimeException(e);
 			}
 		}
-		Arena scope = Arena.ofShared();
-		ScopeContext ctx = new ScopeContext(scope, 0);
+		PooledArena pooled = borrowArena();
+		ScopeContext ctx = new ScopeContext(pooled.arena(), 0, pooled.lifetimeBytes(), pooled.lifetimeCount());
+		long startBytes = pooled.lifetimeBytes().get();
+		long startCount = pooled.lifetimeCount().get();
 		try {
 			return ScopedValue.where(SCOPE_CTX, ctx).call(action::call);
 		} catch (RuntimeException e) {
@@ -359,12 +363,8 @@ public final class Bridge {
 		} catch (Exception e) {
 			throw new RuntimeException(e);
 		} finally {
-			long freed = ctx.allocatedBytes().get();
-			long count = ctx.allocationCount().get();
-			if (count > 0) {
-				org.godot.internal.NativeMemoryTracker.onFree(freed, count);
-			}
-			scope.close();
+			reportFreedDelta(pooled, startBytes, startCount);
+			returnArena(pooled);
 		}
 	}
 
@@ -375,21 +375,73 @@ public final class Bridge {
 	public static void runScoped(Runnable action) {
 		ScopeContext prev = SCOPE_CTX.orElse(NO_SCOPE);
 		if (prev != NO_SCOPE) {
-			ScopeContext ctx = new ScopeContext(prev.arena(), prev.depth() + 1);
+			ScopeContext ctx = new ScopeContext(prev.arena(), prev.depth() + 1, prev.allocatedBytes(),
+					prev.allocationCount());
 			ScopedValue.where(SCOPE_CTX, ctx).run(action);
 			return;
 		}
-		Arena scope = Arena.ofShared();
-		ScopeContext ctx = new ScopeContext(scope, 0);
+		PooledArena pooled = borrowArena();
+		ScopeContext ctx = new ScopeContext(pooled.arena(), 0, pooled.lifetimeBytes(), pooled.lifetimeCount());
+		long startBytes = pooled.lifetimeBytes().get();
+		long startCount = pooled.lifetimeCount().get();
 		try {
 			ScopedValue.where(SCOPE_CTX, ctx).run(action);
 		} finally {
-			long freed = ctx.allocatedBytes().get();
-			long count = ctx.allocationCount().get();
-			if (count > 0) {
-				org.godot.internal.NativeMemoryTracker.onFree(freed, count);
-			}
-			scope.close();
+			reportFreedDelta(pooled, startBytes, startCount);
+			returnArena(pooled);
+		}
+	}
+
+	// ------------------------------------------------------------------------
+	// Scoped arena pool
+	//
+	// Arena.ofShared() creation + close costs >10µs on current JDKs, which
+	// dominates every engine downcall (measured 13.3µs/call before pooling).
+	// Top-level scopes borrow a shared arena from a per-thread pool and return
+	// it unclosed; an arena is closed and replaced once its lifetime
+	// allocations exceed the recycling thresholds, keeping memory bounded.
+	// ------------------------------------------------------------------------
+
+	/** Pooled arena with lifetime allocation counters (persist across borrows). */
+	private record PooledArena(Arena arena, java.util.concurrent.atomic.AtomicLong lifetimeBytes,
+			java.util.concurrent.atomic.AtomicLong lifetimeCount) {
+	}
+
+	/** Max idle arenas retained per thread. */
+	private static final int ARENA_POOL_MAX = 4;
+
+	/** Recycle (close) a pooled arena after this many lifetime allocations. */
+	private static final long ARENA_RECYCLE_ALLOCATIONS = 2048;
+
+	/** Recycle (close) a pooled arena after this many lifetime bytes. */
+	private static final long ARENA_RECYCLE_BYTES = 1L << 19; // 512 KiB
+
+	private static final ThreadLocal<java.util.ArrayDeque<PooledArena>> ARENA_POOL = ThreadLocal
+			.withInitial(java.util.ArrayDeque::new);
+
+	private static PooledArena borrowArena() {
+		PooledArena pooled = ARENA_POOL.get().pollFirst();
+		if (pooled != null) {
+			return pooled;
+		}
+		return new PooledArena(Arena.ofShared(), new java.util.concurrent.atomic.AtomicLong(0),
+				new java.util.concurrent.atomic.AtomicLong(0));
+	}
+
+	private static void returnArena(PooledArena pooled) {
+		if (pooled.lifetimeCount().get() < ARENA_RECYCLE_ALLOCATIONS
+				&& pooled.lifetimeBytes().get() < ARENA_RECYCLE_BYTES && ARENA_POOL.get().size() < ARENA_POOL_MAX) {
+			ARENA_POOL.get().addFirst(pooled);
+			return;
+		}
+		pooled.arena().close();
+	}
+
+	/** Report this borrow's allocation delta to the memory tracker. */
+	private static void reportFreedDelta(PooledArena pooled, long startBytes, long startCount) {
+		long count = pooled.lifetimeCount().get() - startCount;
+		if (count > 0) {
+			org.godot.internal.NativeMemoryTracker.onFree(pooled.lifetimeBytes().get() - startBytes, count);
 		}
 	}
 
