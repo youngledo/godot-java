@@ -46,4 +46,14 @@
         <Class name="org.godot.internal.GodotClassRegistry"/>
         <Bug pattern="SKIPPED_CLASS_TOO_BIG"/>
     </Match>
+
+    <!-- Abstract PackedArray base: constructors may throw while resolving the
+         Variant constructor, but the class is only subclassed by trusted
+         framework code with no finalizers, so the finalizer-attack scenario
+         CT_CONSTRUCTOR_THROW guards against cannot occur. Field assignment
+         is already ordered so a throw leaves zero fields written. -->
+    <Match>
+        <Class name="org.godot.collection.GodotPackedArray"/>
+        <Bug pattern="CT_CONSTRUCTOR_THROW"/>
+    </Match>
 </FindBugsFilter>

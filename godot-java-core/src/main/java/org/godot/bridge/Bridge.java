@@ -55,8 +55,11 @@ public final class Bridge {
 	/** Linker instance for the native platform ABI. */
 	private static final Linker LINKER = Linker.nativeLinker();
 
-	/** Raw library pointer (GDExtensionClassLibraryPtr). */
-	private static long LIBRARY_PTR;
+	/**
+	 * Raw library pointer (GDExtensionClassLibraryPtr). Volatile: 64-bit writes
+	 * must be atomic per the JMM (assigned once during load).
+	 */
+	private static volatile long LIBRARY_PTR;
 
 	/**
 	 * Tracks whether the current thread is inside a Java→Godot downcall. Used to

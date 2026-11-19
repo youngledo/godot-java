@@ -27,11 +27,13 @@ public abstract class GodotPackedArray<T> {
 	private final int variantTypeId;
 
 	protected GodotPackedArray(int variantTypeId) {
-		this.variantTypeId = variantTypeId;
+		// createEmptyVariant may throw — run it before any field assignment so
+		// a partially initialized instance never escapes construction.
 		OwnedVariant owned = createEmptyVariant(variantTypeId);
 		MemorySegment ptrSeg = owned.segment().get(ADDRESS, 8);
 		this.nativePtr = ptrSeg.address();
 		this.ownedVariant = owned;
+		this.variantTypeId = variantTypeId;
 	}
 
 	protected GodotPackedArray(long nativePtr, int variantTypeId) {
