@@ -99,10 +99,16 @@
 - [ ] Godot 4.8 升级观察项:`var(no_get)` 语义变化、Quaternion 预期结果、
   `process_rawptr` 签名(gdext 23d27dc0/b18b64f4/a710fc1b)。升级 API JSON 时核对。
 
-## 顺手项(可选,低优先)
+## 顺手项(可选,低优先)— 2026-11-19 全部完成
 
-- [ ] 文档陈旧数字:README 的 "1016 包装类/1144 虚方法" 与当前生成物(~2072)不符。
-- [ ] SpotBugs 存量:`Bridge.LIBRARY_PTR` 64 位写非原子、`GodotPackedArray` 构造器
-  抛异常(threshold=LOW 不拦截;可修或加豁免)。
-- [ ] examples 本地构建:缺 `godot-java-native` zip 工件时本地 `package` 报错
-  (CI 在 reactor 内正常);可加本地回退(--native-lib)说明或修复解析顺序。
+- [x] 文档陈旧数字:README/README_ZH 的 1016→2072(实际生成包装类)、
+  1144→1437(API JSON 虚方法数),中英文共 8 处。
+- [x] SpotBugs 存量清零:`Bridge.LIBRARY_PTR` 改 volatile(64 位写原子);
+  `GodotPackedArray` 构造器重排(抛异常前零字段赋值)+ CT_CONSTRUCTOR_THROW
+  按项目惯例加豁免(抽象基类仅由可信框架子类继承,无 finalizer)。核心模块
+  SpotBugs 首次零发现。
+- [x] examples 本地构建:根因是 native zip 仅在 unpack 插件配置中引用
+  (非项目依赖,`-am` 无法拉入 reactor);AGENTS.md 命令改为
+  `./mvnw package -pl godot-java-examples -Pskip-native-unpack -DskipTests`
+  (与 CI 同 profile,exit 0 验证通过),本地同步原生库走
+  `scripts/sync-godot-java.sh --native-lib`。
