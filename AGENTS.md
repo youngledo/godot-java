@@ -8,8 +8,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Full framework build (code generator + core + tests)
 mvn install -DskipTests -Dspotbugs.skip=true
 
-# Build examples (fat JAR with shade plugin)
-cd godot-java-examples && mvn package -DskipTests
+# Build examples (fat JAR with shade plugin).
+# skip-native-unpack: the auto-unpack of the godot-java-native zip only works
+# inside a full reactor build (CI); locally, sync the native lib with
+# scripts/sync-godot-java.sh --native-lib instead.
+./mvnw package -pl godot-java-examples -Pskip-native-unpack -DskipTests
 
 # Run unit tests only
 mvn test -pl godot-java-core

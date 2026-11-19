@@ -133,7 +133,7 @@ Core capabilities currently implemented:
   - APT-generated metadata is required; missing metadata causes initialization or dispatch failure rather than a reflection fallback
 
 - **Virtual methods and lifecycle callbacks**
-  - Supports all 1144 virtual methods across all Godot classes
+  - Supports all 1437 virtual methods across all Godot classes
   - Per-class `get_virtual_func` upcall stubs (lazy, only for overridden methods)
   - Lifecycle callbacks: `notification_func`, `to_string_func`, `reference_func`/`unreference_func`, `validate_property_func`
 
@@ -242,7 +242,7 @@ The fundamental difference is how a language integrates with Godot:
 
 ### What this means for godot-java
 
-godot-java follows the GDExtension path. It supports all 1144 virtual methods across all Godot classes, auto-scanned from `extension_api.json`. The dispatch architecture is aligned with gdext (Rust bindings): upcall stubs are created lazily at class registration time, only for methods the user actually overrides. Unimplemented methods return NULL so Godot uses its default C++ implementation.
+godot-java follows the GDExtension path. It supports all 1437 virtual methods across all Godot classes, auto-scanned from `extension_api.json`. The dispatch architecture is aligned with gdext (Rust bindings): upcall stubs are created lazily at class registration time, only for methods the user actually overrides. Unimplemented methods return NULL so Godot uses its default C++ implementation.
 
 If you are coming from gdext: godot-java aims for a similar architecture, with Java instead of Rust and Panama FFI instead of native Rust FFI.
 
@@ -300,7 +300,7 @@ godot-java/
 │       ├── ApiSignaturesGenerator.java # Panama FunctionDescriptors
 │       ├── VariantTypeGenerator.java #   Variant type enum
 │       ├── VirtualMethodGenerator.java # Virtual method metadata
-│       ├── ClassGenerator.java      #   1016 node wrapper classes
+│       ├── ClassGenerator.java      #   2072 node wrapper classes
 │       └── StructLayoutComputer.java #  C struct offset calculator
 ├── godot-java-processor/            # APT annotation processor
 │   └── src/main/java/org/godot/processor/
@@ -331,9 +331,9 @@ This script:
    - **ApiSignatures.java** — Panama FunctionDescriptor for each function
    - **VariantType.java** — Variant type enum
    - **StructOffsets.java** — C struct field offsets
-   - **VirtualMethods.java** — virtual method metadata (1144 methods, name→hash lookup)
+   - **VirtualMethods.java** — virtual method metadata (1437 methods, name→hash lookup)
    - **ObjectMethodHashes.java** — method bind hashes for Object
-   - **1016 node wrapper classes** — engine type API changes
+   - **2072 node wrapper classes** — engine type API changes
 
 Then verify:
 

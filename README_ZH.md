@@ -118,7 +118,7 @@ Demo 与示例项目：
   - APT 注解处理器（`godot-java-processor`）在编译期生成类型化分派代码，热路径零反射
 
 - **虚方法与生命周期回调**
-  - 支持全部 1144 个虚方法（从 `extension_api.json` 自动扫描）
+  - 支持全部 1437 个虚方法（从 `extension_api.json` 自动扫描）
   - 支持常见 Godot 生命周期方法（例如 `_ready`, `_process`, `_physics_process` 等）
   - Java 实例与 Godot 对象通过映射表关联，虚方法通过 upcall stub 回调到 Java
   - 生命周期回调包括：通知转发（`notification`）、字符串表示（`toString` 桥接）、引用计数（`RefCounted` 的原子引用计数）、属性验证等
@@ -280,7 +280,7 @@ godot-java/
 │       ├── ApiSignaturesGenerator.java # Panama FunctionDescriptor
 │       ├── VariantTypeGenerator.java #   Variant 类型枚举
 │       ├── VirtualMethodGenerator.java # 虚方法元数据
-│       ├── ClassGenerator.java      #   1016 个节点封装类
+│       ├── ClassGenerator.java      #   2072 个节点封装类
 │       └── StructLayoutComputer.java #  C 结构体偏移计算
 ├── godot-java-processor/            # APT 注解处理器
 │   └── src/main/java/org/godot/processor/
@@ -313,7 +313,7 @@ godot-java/
    - **StructOffsets.java** — C 结构体字段偏移量
    - **VirtualMethods.java** — Node 继承链的虚方法
    - **ObjectMethodHashes.java** — Object 的方法绑定哈希
-   - **1016 个节点包装类** — 引擎类型 API 变更
+   - **2072 个节点包装类** — 引擎类型 API 变更
 
 然后验证：
 
